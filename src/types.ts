@@ -1,17 +1,28 @@
 export type RiskLevel = 'safe' | 'caution' | 'danger';
 
+export type IndicatorSeverity = 'low' | 'medium' | 'high';
+
 export interface DetectedIndicator {
   type: string;
   label: string;
   description: string;
-  severity: 'low' | 'medium' | 'high';
+  severity: IndicatorSeverity;
   match?: string;
+}
+
+export interface ThreatMatch {
+  start: number;
+  end: number;
+  label: string;
+  severity: IndicatorSeverity;
+  description: string;
 }
 
 export interface ScanResult {
   riskScore: number;
   riskLevel: RiskLevel;
   indicators: DetectedIndicator[];
+  matches: ThreatMatch[];
   summary: string;
   breakdown: {
     category: string;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ShieldCheck,
   ScanLine,
@@ -10,9 +10,9 @@ import {
   Phone,
   ChevronDown,
 } from 'lucide-react';
-import { analyzeText } from './lib/detector';
+import { analyzeText, MAX_INPUT_LENGTH } from './lib/detector';
 import { supabase } from './lib/supabase';
-import type { ScanResult, ScanRecord, RiskLevel } from '@/types';
+import type { ScanResult, ScanRecord, ThreatMatch, IndicatorSeverity } from '@/types';
 import RiskMeter from './components/RiskMeter';
 import IndicatorList from './components/IndicatorList';
 import CategoryBreakdown from './components/CategoryBreakdown';
@@ -40,6 +40,193 @@ const exampleTexts = [
     text: 'Hi Sarah, just wanted to follow up on our meeting from yesterday. I think the project timeline looks good. Can we schedule a quick call for Thursday morning to go over the details? Let me know what time works best for you. Thanks!',
   },
 ];
+
+const severityHighlight: Record<
+  IndicatorSeverity,
+  { wrap: string; badge: string; badgeLabel: string }
+> = {
+  high: {
+    wrap: 'bg-red-500/25 text-red-100 ring-1 ring-red-400/50 hover:bg-red-500/40',
+    badge: 'bg-red-500 text-white',
+    badgeLabel: 'High',
+  },
+  medium: {
+    wrap: 'bg-amber-400/25 text-amber-100 ring-1 ring-amber-400/50 hover:bg-amber-400/40',
+    badge: 'bg-amber-400 text-slate-950',
+    badgeLabel: 'Medium',
+  },
+  low: {
+    wrap: 'bg-yellow-400/20 text-yellow-100 ring-1 ring-yellow-400/40 hover:bg-yellow-400/30',
+    badge: 'bg-yellow-400 text-slate-950',
+    badgeLabel: 'Low',
+  },
+};
+
+const severityRank: Record<IndicatorSeverity, number> = { low: 1, medium: 2, high: 3 };
+
+function highestSeverity(matches: ThreatMatch[]): IndicatorSeverity {
+  return matches.reduce<IndicatorSeverity>((top, match) => {
+    return severityRank[match.severity] > severityRank[top] ? match.severity : top;
+  }, 'low');
+}
+
+interface TextSegment {
+  text: string;
+  matches: ThreatMatch[];
+}
+
+function buildHighlightSegments(text: string, matches: ThreatMatch[]): TextSegment[] {
+  if (!text) return [];
+  if (matches.length === 0) return [{ text, matches: [] }];
+
+  const bounds = new Set<number>([0, text.length]);
+  for (const match of matches) {
+    bounds.add(Math.max(0, Math.min(text.length, match.start)));
+    bounds.add(Math.max(0, Math.min(text.length, match.end)));
+  }
+
+  const points = [...bounds].sort((a, b) => a - b);
+  const raw: TextSegment[] = [];
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const start = points[i];
+    const end = points[i + 1];
+    if (start >= end) continue;
+
+    const covering = matches.filter((match) => match.start < end && match.end > start);
+    raw.push({ text: text.slice(start, end), matches: covering });
+  }
+
+  const merged: TextSegment[] = [];
+  for (const segment of raw) {
+    const prev = merged[merged.length - 1];
+    const sameFlags =
+      prev &&
+      prev.matches.length === segment.matches.length &&
+      prev.matches.every(
+        (match, index) =>
+          match.start === segment.matches[index].start &&
+          match.end === segment.matches[index].end &&
+          match.label === segment.matches[index].label
+      );
+
+    if (sameFlags && prev) {
+      prev.text += segment.text;
+      continue;
+    }
+
+    const sameLabels =
+      prev &&
+      prev.matches.length > 0 &&
+      segment.matches.length > 0 &&
+      new Set(prev.matches.map((match) => match.label)).size ===
+        new Set([...prev.matches, ...segment.matches].map((match) => match.label)).size &&
+      segment.matches.every((match) => prev.matches.some((other) => other.label === match.label));
+
+    if (sameLabels && prev) {
+      prev.text += segment.text;
+      for (const match of segment.matches) {
+        if (
+          !prev.matches.some(
+            (other) => other.start === match.start && other.end === match.end && other.label === match.label
+          )
+        ) {
+          prev.matches.push(match);
+        }
+      }
+    } else {
+      merged.push({ ...segment, matches: [...segment.matches] });
+    }
+  }
+
+  return merged;
+}
+
+function HighlightedScanText({ text, matches }: { text: string; matches: ThreatMatch[] }) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [pinnedIndex, setPinnedIndex] = useState<number | null>(null);
+  const segments = useMemo(() => buildHighlightSegments(text, matches), [text, matches]);
+  const activeIndex = pinnedIndex ?? hoveredIndex;
+
+  if (matches.length === 0) {
+    return (
+      <div className="text-sm text-slate-400 leading-relaxed whitespace-pre-wrap break-words">{text}</div>
+    );
+  }
+
+  return (
+    <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap break-words">
+      {segments.map((segment, index) => {
+        if (segment.matches.length === 0) {
+          return <span key={index}>{segment.text}</span>;
+        }
+
+        const severity = highestSeverity(segment.matches);
+        const styles = severityHighlight[severity];
+        const uniqueReasons = segment.matches.filter(
+          (match, reasonIndex, all) =>
+            all.findIndex((other) => other.label === match.label && other.description === match.description) ===
+            reasonIndex
+        );
+        const isActive = activeIndex === index;
+
+        return (
+          <span
+            key={index}
+            className="relative inline"
+            onMouseEnter={() => setHoveredIndex(index)}
+            onMouseLeave={() => setHoveredIndex((current) => (current === index ? null : current))}
+          >
+            <button
+              type="button"
+              aria-expanded={isActive}
+              aria-label={`${uniqueReasons.map((reason) => reason.label).join(', ')}: ${segment.text}`}
+              className={`inline rounded-sm px-0.5 mx-px cursor-pointer transition-colors ${styles.wrap}`}
+              onFocus={() => setHoveredIndex(index)}
+              onBlur={() => {
+                setHoveredIndex((current) => (current === index ? null : current));
+                setPinnedIndex((current) => (current === index ? null : current));
+              }}
+              onClick={() => setPinnedIndex((current) => (current === index ? null : index))}
+            >
+              {segment.text}
+              <span
+                className={`ml-1 align-middle inline-flex items-center rounded-full px-1.5 py-0 text-[9px] font-bold uppercase tracking-wide ${styles.badge}`}
+              >
+                {styles.badgeLabel}
+              </span>
+            </button>
+            {isActive && (
+              <span
+                role="tooltip"
+                className="absolute left-0 top-full z-30 mt-2 w-72 max-w-[80vw] rounded-xl border border-slate-700 bg-slate-900 p-3 text-left shadow-xl shadow-black/40"
+              >
+                <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                  Why this was flagged
+                </span>
+                <span className="block space-y-2">
+                  {uniqueReasons.map((reason) => (
+                    <span key={`${reason.label}-${reason.start}`} className="block">
+                      <span className="flex items-center gap-2">
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${severityHighlight[reason.severity].badge}`}
+                        >
+                          {severityHighlight[reason.severity].badgeLabel}
+                        </span>
+                        <span className="text-xs font-semibold text-white">{reason.label}</span>
+                      </span>
+                      <span className="mt-1 block text-xs text-slate-400 leading-snug">{reason.description}</span>
+                    </span>
+                  ))}
+                </span>
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function App() {
   const [inputText, setInputText] = useState('');
@@ -116,12 +303,13 @@ export default function App() {
 
   const handleSelectHistory = useCallback((record: ScanRecord) => {
     setInputText(record.input_text);
+    const analyzed = analyzeText(record.input_text);
     setResult({
+      ...analyzed,
       riskScore: record.risk_score,
       riskLevel: record.risk_level,
       indicators: record.detected_indicators,
       summary: record.summary,
-      breakdown: [],
     });
   }, []);
 
@@ -317,6 +505,33 @@ export default function App() {
 >
   📋 Share Threat Report
 </button>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-slate-800 pt-5">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <h4 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
+                        In-text Threat Highlights
+                      </h4>
+                      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide font-semibold">
+                        <span className="inline-flex items-center gap-1 text-red-300">
+                          <span className="w-2 h-2 rounded-full bg-red-500" />
+                          High
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-amber-300">
+                          <span className="w-2 h-2 rounded-full bg-amber-400" />
+                          Medium / Low
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 mb-3">
+                      Hover or tap a highlighted phrase to see why it was flagged. Risk scoring is unchanged.
+                    </p>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 overflow-visible">
+                      <HighlightedScanText
+                        text={inputText.slice(0, MAX_INPUT_LENGTH).trim()}
+                        matches={result.matches ?? []}
+                      />
                     </div>
                   </div>
 

@@ -1,4 +1,4 @@
-import type { DetectedIndicator, RiskLevel, ScanResult } from '@/types';
+import type { DetectedIndicator, RiskLevel, ScanResult, ThreatMatch } from '@/types';
 
 interface Rule {
   type: string;
@@ -224,31 +224,52 @@ const rules: Rule[] = [
   },
 ];
 
-const MAX_INPUT_LENGTH = 10000;
+export const MAX_INPUT_LENGTH = 10000;
+
+function collectRuleMatches(text: string, rule: Rule): ThreatMatch[] {
+  const found: ThreatMatch[] = [];
+
+  for (const pattern of rule.patterns) {
+    const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
+    const regex = new RegExp(pattern.source, flags);
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(text)) !== null) {
+      if (match[0].length === 0) {
+        regex.lastIndex += 1;
+        continue;
+      }
+
+      found.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        label: rule.label,
+        severity: rule.severity,
+        description: rule.description,
+      });
+    }
+  }
+
+  return found;
+}
 
 export function analyzeText(text: string): ScanResult {
   const trimmed = text.slice(0, MAX_INPUT_LENGTH).trim();
   const indicators: DetectedIndicator[] = [];
+  const matches: ThreatMatch[] = [];
   const categoryScores: Record<string, number> = {};
   let rawScore = 0;
 
   const isEmpty = trimmed.length === 0;
 
   for (const rule of rules) {
-    let matched = false;
-    let matchSample = '';
-
-    for (const pattern of rule.patterns) {
-      const regex = new RegExp(pattern.source, pattern.flags);
-      const match = regex.exec(trimmed);
-      if (match) {
-        matched = true;
-        matchSample = match[0];
-        break;
-      }
-    }
+    const ruleMatches = isEmpty ? [] : collectRuleMatches(trimmed, rule);
+    const matched = ruleMatches.length > 0;
+    const matchSample = matched ? trimmed.slice(ruleMatches[0].start, ruleMatches[0].end) : '';
 
     if (matched) {
+      matches.push(...ruleMatches);
+
       const indicator: DetectedIndicator = {
         type: rule.type,
         label: rule.label,
@@ -262,6 +283,8 @@ export function analyzeText(text: string): ScanResult {
       categoryScores[rule.category] = (categoryScores[rule.category] || 0) + rule.weight;
     }
   }
+
+  matches.sort((a, b) => a.start - b.start || a.end - b.end);
 
   // Normalize score to 0-100 with diminishing returns
   const normalizedScore = isEmpty ? 0 : Math.min(100, Math.round(rawScore * 1.8));
@@ -293,6 +316,7 @@ export function analyzeText(text: string): ScanResult {
     riskScore: normalizedScore,
     riskLevel,
     indicators,
+    matches,
     summary,
     breakdown,
   };
