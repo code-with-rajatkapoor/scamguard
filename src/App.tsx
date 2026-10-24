@@ -9,8 +9,10 @@ import {
   MessageSquare,
   Phone,
   ChevronDown,
+  FileDown,
 } from 'lucide-react';
 import { analyzeText, MAX_INPUT_LENGTH } from './lib/detector';
+import { downloadIncidentReport } from './lib/exportIncidentReport';
 import { supabase } from './lib/supabase';
 import type { ScanResult, ScanRecord, ThreatMatch, IndicatorSeverity } from '@/types';
 import RiskMeter from './components/RiskMeter';
@@ -253,6 +255,8 @@ export default function App() {
   const [saveError, setSaveError] = useState(false);
   const [copied, setCopied] = useState(false);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [analyzedAt, setAnalyzedAt] = useState<Date | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const fetchHistory = useCallback(async () => {
     const { data, error } = await supabase
@@ -282,6 +286,7 @@ export default function App() {
     try {
       const resultData = analyzeText(text);
       setResult(resultData);
+      setAnalyzedAt(new Date());
 
       const { error: dbError } = await supabase.from('scans').insert({
         input_text: text.trim(),
@@ -332,6 +337,22 @@ export default function App() {
     setTimeout(() => setCopied(false), 3000);
   };
 
+  const handleExportPdf = () => {
+    if (!result || exportingPdf) return;
+    setExportingPdf(true);
+    try {
+      downloadIncidentReport({
+        sourceText: inputText.slice(0, MAX_INPUT_LENGTH).trim(),
+        result,
+        analyzedAt: analyzedAt ?? new Date(),
+      });
+    } catch (error) {
+      console.error('Failed to export incident report:', error);
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   const handleSelectHistory = useCallback((record: ScanRecord) => {
     setInputText(record.input_text);
     setActivePresetId(null);
@@ -343,6 +364,7 @@ export default function App() {
       indicators: record.detected_indicators,
       summary: record.summary,
     });
+    setAnalyzedAt(record.created_at ? new Date(record.created_at) : new Date());
   }, []);
 
   const handleDeleteHistory = useCallback(
@@ -361,6 +383,7 @@ export default function App() {
     setSavedToHistory(false);
     setSaveError(false);
     setActivePresetId(null);
+    setAnalyzedAt(null);
   }, []);
 
   const handleExample = useCallback((text: string) => {
@@ -368,6 +391,7 @@ export default function App() {
     setResult(null);
     setShowExamples(false);
     setActivePresetId(null);
+    setAnalyzedAt(null);
   }, []);
 
   const charCount = inputText.length;
@@ -450,6 +474,7 @@ export default function App() {
                       if (result) {
                         setResult(null);
                         setSavedToHistory(false);
+                        setAnalyzedAt(null);
                       }
                     }}
                     placeholder="Paste an email, SMS, WhatsApp message, or any text you think might be a scam..."
@@ -538,12 +563,26 @@ export default function App() {
                           Could not save to history — your analysis is still shown above.
                         </p>
                       )}
-                      <button
-  onClick={handleShare}
-  className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-all flex items-center gap-2"
->
-  📋 Share Threat Report
-</button>
+                      <div className="mt-4 flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                        <button
+                          onClick={handleShare}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-all flex items-center gap-2"
+                        >
+                          📋 {copied ? 'Copied' : 'Share Threat Report'}
+                        </button>
+                        <button
+                          onClick={handleExportPdf}
+                          disabled={exportingPdf}
+                          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-teal-500/40 text-white rounded-lg font-medium transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {exportingPdf ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <FileDown className="w-4 h-4 text-teal-400" />
+                          )}
+                          {exportingPdf ? 'Preparing PDF…' : 'Export PDF Report'}
+                        </button>
+                      </div>
                     </div>
                   </div>
 
