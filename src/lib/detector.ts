@@ -1,4 +1,5 @@
 import type { DetectedIndicator, RiskLevel, ScanResult, ThreatMatch } from '@/types';
+import { inspectTyposquatting } from './typosquat';
 
 interface Rule {
   type: string;
@@ -281,6 +282,16 @@ export function analyzeText(text: string): ScanResult {
 
       rawScore += rule.weight;
       categoryScores[rule.category] = (categoryScores[rule.category] || 0) + rule.weight;
+    }
+  }
+
+  if (!isEmpty) {
+    const typosquat = inspectTyposquatting(trimmed);
+    if (typosquat.findings.length > 0) {
+      indicators.push(...typosquat.indicators);
+      matches.push(...typosquat.matches);
+      rawScore += typosquat.weight;
+      categoryScores[typosquat.category] = (categoryScores[typosquat.category] || 0) + typosquat.weight;
     }
   }
 

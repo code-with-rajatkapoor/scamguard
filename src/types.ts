@@ -8,6 +8,7 @@ export interface DetectedIndicator {
   description: string;
   severity: IndicatorSeverity;
   match?: string;
+  badge?: string;
 }
 
 export interface ThreatMatch {
@@ -16,6 +17,16 @@ export interface ThreatMatch {
   label: string;
   severity: IndicatorSeverity;
   description: string;
+  badge?: string;
+}
+
+export interface TyposquatFinding {
+  url: string;
+  domain: string;
+  brand: string;
+  signals: string[];
+  start: number;
+  end: number;
 }
 
 export interface ScanResult {

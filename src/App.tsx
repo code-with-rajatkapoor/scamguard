@@ -39,6 +39,11 @@ const exampleTexts = [
     label: 'Safe Message',
     text: 'Hi Sarah, just wanted to follow up on our meeting from yesterday. I think the project timeline looks good. Can we schedule a quick call for Thursday morning to go over the details? Let me know what time works best for you. Thanks!',
   },
+  {
+    icon: Mail,
+    label: 'Fake Domain',
+    text: 'Dear customer, your Paytm wallet and SBI Yono access will be blocked in 2 hours. Verify now at http://paytm-verify.com/login and https://sbi-login.net/kyc. HDFC users must also update details at hdfc-bank-update.xyz to avoid account freeze.',
+  },
 ];
 
 const severityHighlight: Record<
@@ -168,6 +173,8 @@ function HighlightedScanText({ text, matches }: { text: string; matches: ThreatM
             all.findIndex((other) => other.label === match.label && other.description === match.description) ===
             reasonIndex
         );
+        const explanationBadge =
+          uniqueReasons.find((reason) => reason.badge)?.badge ?? styles.badgeLabel;
         const isActive = activeIndex === index;
 
         return (
@@ -193,7 +200,7 @@ function HighlightedScanText({ text, matches }: { text: string; matches: ThreatM
               <span
                 className={`ml-1 align-middle inline-flex items-center rounded-full px-1.5 py-0 text-[9px] font-bold uppercase tracking-wide ${styles.badge}`}
               >
-                {styles.badgeLabel}
+                {explanationBadge}
               </span>
             </button>
             {isActive && (
@@ -214,6 +221,11 @@ function HighlightedScanText({ text, matches }: { text: string; matches: ThreatM
                           {severityHighlight[reason.severity].badgeLabel}
                         </span>
                         <span className="text-xs font-semibold text-white">{reason.label}</span>
+                        {reason.badge && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${severityHighlight[reason.severity].badge}`}>
+                            {reason.badge}
+                          </span>
+                        )}
                       </span>
                       <span className="mt-1 block text-xs text-slate-400 leading-snug">{reason.description}</span>
                     </span>
@@ -390,7 +402,7 @@ export default function App() {
                 </h2>
                 <p className="text-slate-400 mt-2 text-base max-w-xl mx-auto lg:mx-0">
                   Paste any suspicious email, text message, or chat below. Our engine scans for phishing patterns,
-                  urgency tactics, credential theft, and dozens of other scam indicators.
+                  urgency tactics, credential theft, typosquatted brand domains, and dozens of other scam indicators.
                 </p>
               </div>
 

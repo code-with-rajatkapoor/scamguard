@@ -64,6 +64,11 @@ export default function IndicatorList({ indicators }: IndicatorListProps) {
                 <span className={`text-xs px-2 py-0.5 rounded-full ${config.bg} ${config.color} font-medium`}>
                   {config.label}
                 </span>
+                {indicator.badge && (
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${config.bg} ${config.color} font-semibold uppercase tracking-wide`}>
+                    {indicator.badge}
+                  </span>
+                )}
               </div>
               <p className="text-sm text-slate-400 mt-1">{indicator.description}</p>
               {indicator.match && (
