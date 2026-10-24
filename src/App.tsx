@@ -17,6 +17,7 @@ import RiskMeter from './components/RiskMeter';
 import IndicatorList from './components/IndicatorList';
 import CategoryBreakdown from './components/CategoryBreakdown';
 import HistoryPanel from './components/HistoryPanel';
+import JudgesDemoPresets, { type DemoPreset } from './components/JudgesDemoPresets';
 
 const exampleTexts = [
   {
@@ -66,6 +67,8 @@ const severityHighlight: Record<
     badgeLabel: 'Low',
   },
 };
+
+const maxChars = 5000;
 
 const severityRank: Record<IndicatorSeverity, number> = { low: 1, medium: 2, high: 3 };
 
@@ -249,6 +252,7 @@ export default function App() {
   const [savedToHistory, setSavedToHistory] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
 
   const fetchHistory = useCallback(async () => {
     const { data, error } = await supabase
@@ -267,19 +271,20 @@ export default function App() {
     fetchHistory();
   }, [fetchHistory]);
 
-  const handleAnalyze = useCallback(async () => {
-    if (!inputText.trim() || analyzing) return;
+  const analyzeSource = useCallback(async (rawText: string) => {
+    const text = rawText.slice(0, maxChars);
+    if (!text.trim() || analyzing) return;
     setAnalyzing(true);
     setResult(null);
     setSavedToHistory(false);
     setSaveError(false);
 
     try {
-      const resultData = analyzeText(inputText);
+      const resultData = analyzeText(text);
       setResult(resultData);
 
       const { error: dbError } = await supabase.from('scans').insert({
-        input_text: inputText.trim(),
+        input_text: text.trim(),
         risk_score: resultData.riskScore,
         risk_level: resultData.riskLevel,
         detected_indicators: resultData.indicators,
@@ -298,7 +303,21 @@ export default function App() {
     } finally {
       setAnalyzing(false);
     }
-  }, [inputText, analyzing, fetchHistory]);
+  }, [analyzing, fetchHistory]);
+
+  const handleAnalyze = useCallback(() => {
+    void analyzeSource(inputText);
+  }, [analyzeSource, inputText]);
+
+  const handleSelectPreset = useCallback(
+    (preset: DemoPreset) => {
+      const text = preset.text.slice(0, maxChars);
+      setInputText(text);
+      setActivePresetId(preset.id);
+      void analyzeSource(text);
+    },
+    [analyzeSource]
+  );
   const handleShare = () => {
     const shareText = `🛡️ **ScamGuard Threat Audit Report**\n` +
                       `━━━━━━━━━━━━━━━━━━━\n` +
@@ -315,6 +334,7 @@ export default function App() {
 
   const handleSelectHistory = useCallback((record: ScanRecord) => {
     setInputText(record.input_text);
+    setActivePresetId(null);
     const analyzed = analyzeText(record.input_text);
     setResult({
       ...analyzed,
@@ -340,17 +360,18 @@ export default function App() {
     setResult(null);
     setSavedToHistory(false);
     setSaveError(false);
+    setActivePresetId(null);
   }, []);
 
   const handleExample = useCallback((text: string) => {
     setInputText(text);
     setResult(null);
     setShowExamples(false);
+    setActivePresetId(null);
   }, []);
 
   const charCount = inputText.length;
-  const maxChars = 5000;
-  
+
 
   return (
     <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden">
@@ -409,6 +430,11 @@ export default function App() {
               {/* Input Card */}
               <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-2xl overflow-hidden">
                 <div className="p-5">
+                  <JudgesDemoPresets
+                    activeId={activePresetId}
+                    disabled={analyzing}
+                    onSelect={handleSelectPreset}
+                  />
                   <div className="flex items-center justify-between mb-3">
                     <label className="text-sm font-semibold text-slate-300">Paste the suspicious message</label>
                     <span className={`text-xs tabular-nums ${charCount > maxChars ? 'text-red-400' : 'text-slate-600'}`}>
@@ -420,6 +446,7 @@ export default function App() {
                     onChange={(e) => {
                       const val = e.target.value.slice(0, maxChars);
                       setInputText(val);
+                      setActivePresetId(null);
                       if (result) {
                         setResult(null);
                         setSavedToHistory(false);
