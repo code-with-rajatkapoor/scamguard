@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ShieldCheck,
   ScanLine,
@@ -10,16 +10,20 @@ import {
   Phone,
   ChevronDown,
   FileDown,
+  ShieldAlert,
+  ShieldCheck as ShieldCheckIcon,
+  X,
 } from 'lucide-react';
 import { analyzeText, MAX_INPUT_LENGTH } from './lib/detector';
-import { downloadIncidentReport } from './lib/exportIncidentReport';
 import { supabase } from './lib/supabase';
 import type { ScanResult, ScanRecord, ThreatMatch, IndicatorSeverity } from '@/types';
 import RiskMeter from './components/RiskMeter';
 import IndicatorList from './components/IndicatorList';
 import CategoryBreakdown from './components/CategoryBreakdown';
 import HistoryPanel from './components/HistoryPanel';
-import JudgesDemoPresets, { type DemoPreset } from './components/JudgesDemoPresets';
+import JudgesDemoPresets from './components/JudgesDemoPresets';
+import type { DemoPreset } from './components/demoPresets';
+import QrScanner from './components/QrScanner';
 
 const exampleTexts = [
   {
@@ -54,17 +58,17 @@ const severityHighlight: Record<
   { wrap: string; badge: string; badgeLabel: string }
 > = {
   high: {
-    wrap: 'bg-red-500/25 text-red-100 ring-1 ring-red-400/50 hover:bg-red-500/40',
+    wrap: 'bg-red-500/15 text-red-100 ring-1 ring-red-400/40 hover:bg-red-500/25',
     badge: 'bg-red-500 text-white',
     badgeLabel: 'High',
   },
   medium: {
-    wrap: 'bg-amber-400/25 text-amber-100 ring-1 ring-amber-400/50 hover:bg-amber-400/40',
+    wrap: 'bg-amber-400/15 text-amber-100 ring-1 ring-amber-400/40 hover:bg-amber-400/25',
     badge: 'bg-amber-400 text-slate-950',
     badgeLabel: 'Medium',
   },
   low: {
-    wrap: 'bg-yellow-400/20 text-yellow-100 ring-1 ring-yellow-400/40 hover:bg-yellow-400/30',
+    wrap: 'bg-yellow-400/12 text-yellow-100 ring-1 ring-yellow-400/30 hover:bg-yellow-400/20',
     badge: 'bg-yellow-400 text-slate-950',
     badgeLabel: 'Low',
   },
@@ -193,7 +197,7 @@ function HighlightedScanText({ text, matches }: { text: string; matches: ThreatM
               type="button"
               aria-expanded={isActive}
               aria-label={`${uniqueReasons.map((reason) => reason.label).join(', ')}: ${segment.text}`}
-              className={`inline rounded-sm px-0.5 mx-px cursor-pointer transition-colors ${styles.wrap}`}
+              className={`inline rounded-sm px-0.5 mx-px cursor-pointer transition-colors duration-150 ${styles.wrap}`}
               onFocus={() => setHoveredIndex(index)}
               onBlur={() => {
                 setHoveredIndex((current) => (current === index ? null : current));
@@ -203,7 +207,7 @@ function HighlightedScanText({ text, matches }: { text: string; matches: ThreatM
             >
               {segment.text}
               <span
-                className={`ml-1 align-middle inline-flex items-center rounded-full px-1.5 py-0 text-[9px] font-bold uppercase tracking-wide ${styles.badge}`}
+                className={`ml-1.5 inline-flex items-center rounded-full px-1.5 py-0 text-[9px] font-bold uppercase tracking-wide ${styles.badge}`}
               >
                 {explanationBadge}
               </span>
@@ -211,23 +215,26 @@ function HighlightedScanText({ text, matches }: { text: string; matches: ThreatM
             {isActive && (
               <span
                 role="tooltip"
-                className="absolute left-0 top-full z-30 mt-2 w-72 max-w-[80vw] rounded-xl border border-slate-700 bg-slate-900 p-3 text-left shadow-xl shadow-black/40"
+                className="absolute left-0 top-full z-30 mt-2 w-72 max-w-[85vw] rounded-xl border border-slate-700/60 bg-slate-900/95 p-3 text-left shadow-2xl shadow-black/40 backdrop-blur-sm"
               >
-                <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                <span className="mb-2 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                   Why this was flagged
                 </span>
-                <span className="block space-y-2">
+                <span className="space-y-2">
                   {uniqueReasons.map((reason) => (
                     <span key={`${reason.label}-${reason.start}`} className="block">
-                      <span className="flex items-center gap-2">
+                      <span className="flex flex-wrap items-center gap-2">
                         <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${severityHighlight[reason.severity].badge}`}
+                          className={`mb-0.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0 text-[9px] font-semibold ${severityHighlight[reason.severity].badge}`}
                         >
+                          <ShieldAlert className="w-2.5 h-2.5" />
                           {severityHighlight[reason.severity].badgeLabel}
                         </span>
                         <span className="text-xs font-semibold text-white">{reason.label}</span>
                         {reason.badge && (
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${severityHighlight[reason.severity].badge}`}>
+                          <span
+                            className={`text-[9px] px-1.5 py-0 rounded-full font-semibold uppercase tracking-wide ${severityHighlight[reason.severity].badge}`}
+                          >
                             {reason.badge}
                           </span>
                         )}
@@ -245,6 +252,28 @@ function HighlightedScanText({ text, matches }: { text: string; matches: ThreatM
   );
 }
 
+async function fetchAIAnalysis(rawText: string): Promise<{ status: string; confidence: string; reason: string } | null> {
+  const enabled = import.meta.env.VITE_AI_ENABLED !== 'false';
+  if (!enabled) return null;
+
+  try {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: rawText.slice(0, maxChars) }),
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && typeof data.status === 'string' && typeof data.reason === 'string') {
+      return { status: data.status, confidence: data.confidence || 'medium', reason: data.reason };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   const [inputText, setInputText] = useState('');
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -254,16 +283,17 @@ export default function App() {
   const [savedToHistory, setSavedToHistory] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<{ status: string; confidence: string; reason: string } | null>(null);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [analyzedAt, setAnalyzedAt] = useState<Date | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [exportingCsv, setExportingCsv] = useState(false);
+  const analysisKey = useRef(0);
 
   const fetchHistory = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('scans')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(50);
+    const { data, error } = await supabase.from('scans').select('*').order('created_at', { ascending: false }).limit(50);
     if (error) {
       console.error('Failed to load history:', error);
       return;
@@ -278,16 +308,19 @@ export default function App() {
   const analyzeSource = useCallback(async (rawText: string) => {
     const text = rawText.slice(0, maxChars);
     if (!text.trim() || analyzing) return;
+    const key = ++analysisKey.current;
     setAnalyzing(true);
     setResult(null);
     setSavedToHistory(false);
     setSaveError(false);
+    setAnalysisProgress(0);
+
+    // Run the fast, deterministic rule-based analysis first so the user sees
+    // a result immediately. The background AI verdict runs on top of that.
+    const resultData = analyzeText(text);
+    setResult(resultData);
 
     try {
-      const resultData = analyzeText(text);
-      setResult(resultData);
-      setAnalyzedAt(new Date());
-
       const { error: dbError } = await supabase.from('scans').insert({
         input_text: text.trim(),
         risk_score: resultData.riskScore,
@@ -304,10 +337,31 @@ export default function App() {
         fetchHistory();
       }
     } catch (error) {
-      console.error("Failed to analyze text:", error);
+      console.error('Failed to analyze text:', error);
     } finally {
       setAnalyzing(false);
     }
+
+    // Background AI verdict (optional, slow). Animate a progress bar while it
+    // runs, and only apply the result if this is still the latest analysis.
+    void (async () => {
+      const progressInterval = setInterval(() => {
+        setAnalysisProgress((prev) => {
+          if (prev >= 100) {
+            clearInterval(progressInterval);
+            return 100;
+          }
+          return Math.min(prev + 12, 100);
+        });
+      }, 250);
+
+      const ai = await fetchAIAnalysis(text);
+      setAnalysisProgress(100);
+      if (ai && analysisKey.current === key) {
+        setAiAnalysis(ai);
+      }
+      clearInterval(progressInterval);
+    })();
   }, [analyzing, fetchHistory]);
 
   const handleAnalyze = useCallback(() => {
@@ -323,25 +377,21 @@ export default function App() {
     },
     [analyzeSource]
   );
+
   const handleShare = () => {
-    const shareText = `🛡️ **ScamGuard Threat Audit Report**\n` +
-                      `━━━━━━━━━━━━━━━━━━━\n` +
-                      `• **Threat Level**: ${result?.riskLevel} (${result?.riskScore}% Risk Score)\n` +
-                      `• **Summary**: ${result?.summary}\n` +
-                      `━━━━━━━━━━━━━━━━━━━\n` +
-                      `Analyzed securely via ScamGuard Enterprise Engine.\n` +
-                      `🔗 Check it out: https://scamguard-omega.vercel.app`;
+    const shareText = `🛡️ ScamGuard Threat Audit Report\n━━━━━━━━━━━━━━━━━━━\n• Threat Level: ${result?.riskLevel} (${result?.riskScore}% Risk Score)\n• Summary: ${result?.summary}\n━━━━━━━━━━━━━━━━━━━\nAnalyzed via ScamGuard Engine.\n🔗 Check it out: https://scamguard-omega.vercel.app`;
 
     navigator.clipboard.writeText(shareText);
     setCopied(true);
     setTimeout(() => setCopied(false), 3000);
   };
 
-  const handleExportPdf = () => {
+  const handleExportPdf = async () => {
     if (!result || exportingPdf) return;
     setExportingPdf(true);
     try {
-      downloadIncidentReport({
+      const { downloadIncidentReport } = await import('./lib/exportIncidentReport');
+      await downloadIncidentReport({
         sourceText: inputText.slice(0, MAX_INPUT_LENGTH).trim(),
         result,
         analyzedAt: analyzedAt ?? new Date(),
@@ -394,222 +444,322 @@ export default function App() {
     setAnalyzedAt(null);
   }, []);
 
+  const handleExportCsv = useCallback(async () => {
+    if (history.length === 0) return;
+    setExportingCsv(true);
+    try {
+      const headers = ['Timestamp', 'Risk Score', 'Risk Level', 'Indicators', 'Summary'];
+      const rows = history.map((h) => [
+        h.created_at || '',
+        h.risk_score?.toString() || '',
+        h.risk_level || '',
+        `${h.detected_indicators?.length || 0}`,
+        `"${h.summary?.replace(/"/g, '""') || ''}"`,
+      ]);
+      const csvContent = [headers, ...rows]
+        .map((r) => r.join(','))
+        .join('\n');
+      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[^0-9]/g, '');
+      link.href = URL.createObjectURL(blob);
+      link.download = `scan-history-${timestamp}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (error) {
+      console.error('Failed to export CSV:', error);
+    } finally {
+      setExportingCsv(false);
+    }
+  }, [history]);
+
   const charCount = inputText.length;
 
+  const stats = useMemo(() => {
+    const danger = history.filter((h) => h.risk_level === 'danger').length;
+    const safe = history.filter((h) => h.risk_level === 'safe').length;
+    return { total: history.length, danger, safe };
+  }, [history]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden">
-      {/* Background gradient effects */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-teal-500/10 rounded-full blur-[120px]" />
-        <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[120px]" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 w-[400px] h-[400px] bg-emerald-500/5 rounded-full blur-[100px]" />
+    <div
+      className={`min-h-screen relative overflow-hidden transition-colors duration-300 ${
+        theme === 'light' ? 'theme-light' : 'theme-dark'
+      }`}
+    >
+      {/* Background ornaments */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[-12%] left-[-8%] w-[700px] h-[700px] bg-teal-500/5 rounded-full blur-[140px] animate-float" />
+        <div className="absolute bottom-[-10%] right-[10%] w-[600px] h-[600px] bg-blue-500/5 rounded-full blur-[140px] animate-float" style={{ animationDelay: '2.6s' }} />
+        <div className="absolute top-[40%] right-[20%] w-[400px] h-[400px] bg-indigo-500/5 rounded-full blur-[110px] animate-float" style={{ animationDelay: '5.2s' }} />
+        <div
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: 'linear-gradient(to right, #f1f5f9 1px, transparent 1px), linear-gradient(to bottom, #f1f5f9 1px, transparent 1px)',
+            backgroundSize: '44px 44px',
+          }}
+        />
       </div>
-
-      {/* Grid pattern overlay */}
-      <div
-        className="fixed inset-0 pointer-events-none opacity-[0.03]"
-        style={{
-          backgroundImage: `linear-gradient(to right, white 1px, transparent 1px), linear-gradient(to bottom, white 1px, transparent 1px)`,
-          backgroundSize: '40px 40px',
-        }}
-      />
 
       <div className="relative z-10">
         {/* Header */}
-        <header className="border-b border-slate-800/60 backdrop-blur-sm bg-slate-950/50 sticky top-0 z-20">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+        <header className="sticky top-0 z-20 border-b border-slate-800/60 bg-slate-950/60 backdrop-blur-md">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-blue-600 flex items-center justify-center shadow-lg shadow-teal-500/20">
-                <ShieldCheck className="w-6 h-6 text-white" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-blue-600 shadow-lg shadow-teal-500/20">
+                <ShieldCheck className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-bold tracking-tight">ScamGuard</h1>
-                <p className="text-xs text-slate-500">AI Phishing &amp; Scam Detector</p>
+                <h1 className="text-base font-bold tracking-tight">ScamGuard</h1>
+                <p className="text-xs text-slate-500">AI phishing &amp; scam detector</p>
               </div>
             </div>
-            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500">
-              <Sparkles className="w-4 h-4 text-teal-400" />
-              <span>Pattern-based threat analysis engine</span>
+            <div className="flex items-center justify-between gap-3">
+              <div className="hidden items-center gap-2 text-xs text-slate-500 sm:flex">
+                <Sparkles className="h-4 w-4 text-teal-400" />
+                <span>Pattern-based threat analysis engine</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                  className="theme-toggle"
+                  aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                >
+                  <input
+                    type="checkbox"
+                    checked={theme === 'dark'}
+                    onChange={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                  />
+                  <span className="slider" />
+                </button>
+              </div>
             </div>
           </div>
         </header>
 
-        {/* Main Content */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8">
+        {/* Main */}
+        <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-10 lg:px-8 lg:py-14">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
             {/* Left: Analysis Area */}
-            <div className="space-y-6">
-              {/* Intro */}
-              <div className="text-center lg:text-left">
-                <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
-                  Is it a <span className="text-teal-400">scam</span> or <span className="text-emerald-400">safe</span>?
-                </h2>
-                <p className="text-slate-400 mt-2 text-base max-w-xl mx-auto lg:mx-0">
-                  Paste any suspicious email, text message, or chat below. Our engine scans for phishing patterns,
-                  urgency tactics, credential theft, typosquatted brand domains, and dozens of other scam indicators.
-                </p>
+            <div className="space-y-5">
+              {/* Hero */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="inline-flex h-2 w-2 rounded-full bg-red-500/80" />
+                    <span className="text-[11px] font-semibold uppercase tracking-widest text-red-400">Live</span>
+                  </div>
+                  <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+                    Is it a <span className="text-teal-400">scam</span> or <span className="text-emerald-400">safe</span>?
+                  </h2>
+                  <p className="mt-2 max-w-xl text-sm text-slate-400 sm:text-base">
+                    Paste any suspicious email, text message, or chat below. Our engine scans for phishing patterns,
+                    urgency tactics, credential theft, typosquatted brand domains, and dozens of other scam indicators.
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2 rounded-xl bg-slate-900/60 px-3 py-2 text-xs text-slate-400 sm:text-right">
+                  <span className="text-slate-600">Paste &amp;</span>
+                  <span className="text-white">Run scan</span>
+                </div>
               </div>
 
               {/* Input Card */}
-              <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-2xl overflow-hidden">
-                <div className="p-5">
-                  <JudgesDemoPresets
-                    activeId={activePresetId}
-                    disabled={analyzing}
-                    onSelect={handleSelectPreset}
-                  />
-                  <div className="flex items-center justify-between mb-3">
-                    <label className="text-sm font-semibold text-slate-300">Paste the suspicious message</label>
-                    <span className={`text-xs tabular-nums ${charCount > maxChars ? 'text-red-400' : 'text-slate-600'}`}>
-                      {charCount.toLocaleString()} / {maxChars.toLocaleString()}
-                    </span>
-                  </div>
-                  <textarea
-                    value={inputText}
-                    onChange={(e) => {
-                      const val = e.target.value.slice(0, maxChars);
-                      setInputText(val);
-                      setActivePresetId(null);
-                      if (result) {
-                        setResult(null);
-                        setSavedToHistory(false);
-                        setAnalyzedAt(null);
-                      }
-                    }}
-                    placeholder="Paste an email, SMS, WhatsApp message, or any text you think might be a scam..."
-                    className="w-full h-44 bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white placeholder:text-slate-600 resize-y focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500/40 transition-all"
-                    maxLength={maxChars}
-                  />
+              <div className="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-4 backdrop-blur-sm sm:p-5">
+                <JudgesDemoPresets activeId={activePresetId} disabled={analyzing} onSelect={handleSelectPreset} />
 
-                  {/* Example dropdown */}
-                  <div className="relative mt-3">
-                    <button
-                      onClick={() => setShowExamples((v) => !v)}
-                      className="text-xs text-slate-500 hover:text-teal-400 transition-colors flex items-center gap-1.5"
-                    >
-                      Try an example
-                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showExamples ? 'rotate-180' : ''}`} />
-                    </button>
-                    {showExamples && (
-                      <div className="mt-2 grid grid-cols-2 gap-2">
-                        {exampleTexts.map((ex) => {
-                          const Icon = ex.icon;
-                          return (
-                            <button
-                              key={ex.label}
-                              onClick={() => handleExample(ex.text)}
-                              className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 hover:border-teal-500/30 text-left transition-all group"
-                            >
-                              <Icon className="w-4 h-4 text-slate-500 group-hover:text-teal-400 shrink-0" />
-                              <span className="text-xs text-slate-400 group-hover:text-white">{ex.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                <div className="mb-2.5 flex items-center justify-between">
+                  <label className="text-sm font-semibold text-slate-300">Paste the suspicious message</label>
+                  <span className={`text-xs tabular-nums ${charCount > maxChars ? 'text-red-400' : 'text-slate-600'}`}>
+                    {charCount.toLocaleString()} / {maxChars.toLocaleString()}
+                  </span>
                 </div>
 
-                {/* Action Bar */}
-                <div className="flex items-center gap-3 px-5 py-4 border-t border-slate-800 bg-slate-950/40">
+                <textarea
+                  value={inputText}
+                  onChange={(e) => {
+                    const val = e.target.value.slice(0, maxChars);
+                    setInputText(val);
+                    setActivePresetId(null);
+                    if (result) {
+                      setResult(null);
+                      setSavedToHistory(false);
+                      setAnalyzedAt(null);
+                    }
+                  }}
+                  placeholder="Paste an email, SMS, WhatsApp message, or any text you think might be a scam..."
+                  className="mt-2 h-40 w-full resize-y rounded-xl bg-slate-950/80 px-4 py-3 text-sm text-white placeholder:text-slate-600 transition-all focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500/40"
+                  maxLength={maxChars}
+                />
+
+                {/* Example dropdown */}
+                <div className="relative mt-3">
                   <button
-                    onClick={handleAnalyze}
-                    disabled={!inputText.trim() || analyzing}
-                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-blue-600 hover:from-teal-400 hover:to-blue-500 text-white font-semibold text-sm shadow-lg shadow-teal-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all hover:shadow-teal-500/30 active:scale-95"
+                    onClick={() => setShowExamples((v) => !v)}
+                    className="flex items-center gap-1.5 text-xs text-slate-500 transition-colors hover:text-teal-400"
                   >
-                    {analyzing ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Analyzing...
-                      </>
-                    ) : (
-                      <>
-                        <ScanLine className="w-4 h-4" />
-                        Analyze Text
-                      </>
-                    )}
+                    Try an example
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showExamples ? 'rotate-180' : ''}`} />
                   </button>
-                  {inputText && (
-                    <button
-                      onClick={handleClear}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 text-sm font-medium transition-all"
-                    >
-                      <Trash className="w-4 h-4" />
-                      Clear
-                    </button>
+                  {showExamples && (
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {exampleTexts.map((ex) => {
+                        const Icon = ex.icon;
+                        return (
+                          <button
+                            key={ex.label}
+                            onClick={() => handleExample(ex.text)}
+                            className="flex items-center gap-2 rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-2.5 text-left transition-all hover:border-teal-500/30 hover:bg-slate-800 group"
+                          >
+                            <Icon className="h-4 w-4 shrink-0 text-slate-500 group-hover:text-teal-400" />
+                            <span className="text-xs text-slate-400 group-hover:text-white">{ex.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               </div>
 
+              {/* Action Bar */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <button
+                  onClick={handleAnalyze}
+                  disabled={!inputText.trim() || analyzing}
+                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-teal-500 to-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-teal-500/20 transition-all hover:from-teal-400 hover:to-blue-500 hover:shadow-teal-500/30 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:from-teal-500 disabled:hover:to-blue-600"
+                >
+                  {analyzing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <ScanLine className="h-4 w-4" />
+                      Analyze Text
+                    </>
+                  )}
+                </button>
+                {inputText.trim() && (
+                  <button
+                    onClick={handleClear}
+                    className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-400 transition-all hover:bg-slate-800 hover:text-white"
+                  >
+                    <Trash className="h-4 w-4" />
+                    Clear
+                  </button>
+                )}
+              </div>
+
               {/* Results */}
-              {result && (
+              {result && !analyzing && (
                 <div
-                  className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-2xl p-6 space-y-6"
+                  className="space-y-5 rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 backdrop-blur-sm sm:p-6"
                   style={{ animation: 'fadeInUp 0.4s ease-out' }}
                 >
-                  <div className="flex flex-col sm:flex-row items-center gap-6">
+                  {/* Progress indicator */}
+                  {analyzing && analysisProgress > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">AI verdict pending</span>
+                        <span className="text-slate-500 font-mono">{analysisProgress}%</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-teal-400 to-blue-600 transition-all duration-250 ease-out"
+                          style={{ width: `${analysisProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
                     <RiskMeter score={result.riskScore} level={result.riskLevel} />
-                    <div className="flex-1 text-center sm:text-left">
-                      <p className="text-slate-300 text-sm leading-relaxed">{result.summary}</p>
+
+                    <div className="flex-1 space-y-4 text-sm leading-relaxed">
+                      <p className="text-slate-300">{result.summary}</p>
+
                       {savedToHistory && (
-                        <p className="text-xs text-slate-600 mt-3 flex items-center gap-1.5 justify-center sm:justify-start">
-                          <Sparkles className="w-3 h-3 text-teal-400" />
+                        <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500">
+                          <Sparkles className="h-3 w-3 text-teal-400" />
                           Saved to your scan history
                         </p>
                       )}
                       {saveError && (
-                        <p className="text-xs text-red-400 mt-3 flex items-center gap-1.5 justify-center sm:justify-start">
+                        <p className="mt-3 flex items-center gap-1.5 text-xs text-red-400">
                           Could not save to history — your analysis is still shown above.
                         </p>
                       )}
-                      <div className="mt-4 flex flex-wrap items-center justify-center sm:justify-start gap-2">
+
+                      {aiAnalysis && (
+                        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              AI verdict
+                            </span>
+                            <span
+                              className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                                aiAnalysis.status === 'SCAM'
+                                  ? 'bg-red-500/10 text-red-400'
+                                  : 'bg-emerald-500/10 text-emerald-400'
+                              }`}
+                            >
+                              {aiAnalysis.status}
+                            </span>
+                            <span className="text-xs text-slate-500">{aiAnalysis.confidence} confidence</span>
+                          </div>
+                          <p className="mt-2 text-slate-300">{aiAnalysis.reason}</p>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
                         <button
                           onClick={handleShare}
-                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-all flex items-center gap-2"
+                          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-blue-700 active:scale-[0.97]"
                         >
-                          📋 {copied ? 'Copied' : 'Share Threat Report'}
+                          {copied ? <><X className="h-3.5 w-3.5" /> Copied</> : <><span className="text-base">📋</span> Share threat report</>}
                         </button>
                         <button
                           onClick={handleExportPdf}
                           disabled={exportingPdf}
-                          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-teal-500/40 text-white rounded-lg font-medium transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-white transition-all hover:border-teal-500/40 hover:bg-slate-800 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {exportingPdf ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Preparing PDF...
+                            </>
                           ) : (
-                            <FileDown className="w-4 h-4 text-teal-400" />
+                            <>
+                              <FileDown className="h-4 w-4 text-teal-400" />
+                              Export PDF report
+                            </>
                           )}
-                          {exportingPdf ? 'Preparing PDF…' : 'Export PDF Report'}
                         </button>
                       </div>
                     </div>
                   </div>
 
                   <div className="border-t border-slate-800 pt-5">
-                    <div className="flex items-center justify-between gap-3 mb-3">
-                      <h4 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
-                        In-text Threat Highlights
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+                        In-text threat highlights
                       </h4>
-                      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide font-semibold">
-                        <span className="inline-flex items-center gap-1 text-red-300">
-                          <span className="w-2 h-2 rounded-full bg-red-500" />
+                      <div className="flex items-center gap-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <span className="h-2 w-2 rounded-full bg-red-500" />
                           High
                         </span>
-                        <span className="inline-flex items-center gap-1 text-amber-300">
-                          <span className="w-2 h-2 rounded-full bg-amber-400" />
+                        <span className="flex items-center gap-1">
+                          <span className="h-2 w-2 rounded-full bg-amber-400" />
                           Medium / Low
                         </span>
                       </div>
                     </div>
-                    <p className="text-xs text-slate-500 mb-3">
-                      Hover or tap a highlighted phrase to see why it was flagged. Risk scoring is unchanged.
+                    <p className="mb-3 text-xs text-slate-500">
+                      Hover or tap a phrase to see why it was flagged. Scoring is unchanged.
                     </p>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 overflow-visible">
-                      <HighlightedScanText
-                        text={inputText.slice(0, MAX_INPUT_LENGTH).trim()}
-                        matches={result.matches ?? []}
-                      />
+                    <div className="overflow-visible rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3">
+                      <HighlightedScanText text={inputText.slice(0, MAX_INPUT_LENGTH).trim()} matches={result.matches ?? []} />
                     </div>
                   </div>
 
@@ -620,22 +770,50 @@ export default function App() {
                   )}
 
                   <div className="border-t border-slate-800 pt-5">
-                    <h4 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3">
-                      Detected Indicators ({result.indicators.length})
+                    <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">
+                      Detected indicators ({result.indicators.length})
                     </h4>
                     <IndicatorList indicators={result.indicators} />
                   </div>
+
+                  {/* URL / domain scan panel */}
+                  {result.indicators.some((i) => i.type === 'typosquatting') && (
+                    <div className="border-t border-slate-800 pt-5">
+                      <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">
+                        Links &amp; domains checked
+                      </h4>
+                      <div className="space-y-3">
+                        {result.indicators
+                          .filter((i) => i.type === 'typosquatting')
+                          .map((indicator) => (
+                            <div
+                              key={indicator.match}
+                              className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/5 p-3"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm text-white">{indicator.description}</p>
+                                <p className="mt-1 text-xs font-mono break-all text-slate-500">{indicator.match}</p>
+                              </div>
+                              <span className="inline-flex shrink-0 items-center rounded-full bg-red-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-red-400">
+                                {indicator.badge}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Empty state */}
               {!result && !analyzing && (
-                <div className="bg-slate-900/40 border border-dashed border-slate-800 rounded-2xl p-12 text-center">
-                  <div className="w-16 h-16 rounded-2xl bg-slate-800/60 mx-auto flex items-center justify-center mb-4">
-                    <ScanLine className="w-8 h-8 text-slate-600" />
+                <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-800/80 bg-slate-900/40 p-12 text-center">
+                  <div className="mb-4 animate-pulse flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-800/60">
+                    <ScanLine className="h-8 w-8 text-slate-600" />
                   </div>
-                  <p className="text-slate-500 text-sm">
-                    Paste a message above and hit <span className="text-teal-400 font-semibold">Analyze Text</span> to see the results here.
+                  <p className="text-sm text-slate-500">
+                    Paste a message above and hit{' '}
+                    <span className="font-semibold text-teal-400">Analyze Text</span> to see the results here.
                   </p>
                 </div>
               )}
@@ -643,40 +821,61 @@ export default function App() {
 
             {/* Right: History Sidebar */}
             <aside className="space-y-4">
-              <HistoryPanel
-                history={history}
-                onSelect={handleSelectHistory}
-                onDelete={handleDeleteHistory}
+              <HistoryPanel history={history} onSelect={handleSelectHistory} onDelete={handleDeleteHistory} />
+
+              {/* QR Code Scanner */}
+              <QrScanner
+                onScan={(content) => {
+                  setInputText(content);
+                  setActivePresetId(null);
+                  if (result) {
+                    setResult(null);
+                    setSavedToHistory(false);
+                    setAnalyzedAt(null);
+                  }
+                }}
+                autoStart={false}
               />
 
-              {/* Stats card */}
-              <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-2xl p-5">
-                <h3 className="font-semibold text-white text-sm mb-4">Your Stats</h3>
+              <div className="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 backdrop-blur-sm">
+                <h3 className="text-sm font-semibold text-white mb-4">Your scan history</h3>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-white">{history.length}</p>
-                    <p className="text-xs text-slate-500 mt-1">Total Scans</p>
+                    <p className="text-2xl font-bold text-white">{stats.total}</p>
+                    <p className="mt-1 text-xs text-slate-500">Total scans</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-red-400">
-                      {history.filter((h) => h.risk_level === 'danger').length}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-1">Flagged</p>
+                    <p className="text-2xl font-bold text-red-400">{stats.danger}</p>
+                    <p className="mt-1 text-xs text-slate-500">Flagged</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-emerald-400">
-                      {history.filter((h) => h.risk_level === 'safe').length}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-1">Safe</p>
+                    <p className="text-2xl font-bold text-emerald-400">{stats.safe}</p>
+                    <p className="mt-1 text-xs text-slate-500">Safe</p>
                   </div>
                 </div>
+                <button
+                  onClick={handleExportCsv}
+                  disabled={history.length === 0 || exportingCsv}
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-sm font-medium text-white transition-all hover:border-teal-500/40 hover:bg-slate-800 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {exportingCsv ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Preparing CSV...
+                    </>
+                  ) : (
+                    <>
+                      <FileDown className="h-4 w-4 text-teal-400" />
+                      Export history as CSV
+                    </>
+                  )}
+                </button>
               </div>
 
-              {/* Tips card */}
-              <div className="bg-gradient-to-br from-teal-500/10 to-blue-500/10 border border-teal-500/20 rounded-2xl p-5">
-                <h3 className="font-semibold text-white text-sm mb-3 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-teal-400" />
-                  Stay Safe Tips
+              <div className="rounded-2xl border border-teal-500/20 bg-gradient-to-br from-teal-500/5 to-blue-500/5 p-5">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+                  <ShieldCheckIcon className="h-4 w-4 text-teal-400" />
+                  Stay safe tips
                 </h3>
                 <ul className="space-y-2.5 text-xs text-slate-400">
                   <li className="flex gap-2">
@@ -702,8 +901,8 @@ export default function App() {
         </main>
 
         {/* Footer */}
-        <footer className="border-t border-slate-800/60 mt-8">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-center text-xs text-slate-600">
+        <footer className="mt-8 border-t border-slate-800/60">
+          <div className="mx-auto max-w-7xl px-4 pb-6 text-center text-xs text-slate-600 sm:px-6 lg:px-8">
             <p>
               ScamGuard provides automated analysis and is not a substitute for professional security advice.
               Always verify suspicious messages through official channels.

@@ -8,7 +8,7 @@ const app = express();
 
 const PORT = process.env.PORT || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
 
 // Configure CORS for local development and your Vercel frontend.
 const allowedOrigins = (process.env.FRONTEND_URL || "")
@@ -64,16 +64,22 @@ app.post("/api/analyze", async (req, res) => {
 
     const content = input.trim();
 
-    if (content.length > 8000) {
+    if (content.length > 10000) {
       return res.status(400).json({
-        error: "Input is too long. Maximum length is 8000 characters.",
+        error: "Input is too long. Maximum length is 10000 characters.",
       });
     }
 
-    // Ensure that the API key is configured.
-    if (!GEMINI_API_KEY) {
+    // Ensure that the API key is configured and is not a placeholder.
+    const trimmedKey = GEMINI_API_KEY.trim();
+    const isPlaceholderKey =
+      !GEMINI_API_KEY ||
+      /^\s*<set>\s*$/i.test(trimmedKey) ||
+      /^\s*(your[-_]?key[-_]?here|replace[-_]?me|no[-_]?key|api[-_]?key)\s*$/i.test(trimmedKey);
+    if (isPlaceholderKey) {
       return res.status(503).json({
-        error: "Gemini API key is missing. Configure GEMINI_API_KEY in .env.",
+        error:
+          "Gemini API key is missing or is a placeholder. Copy `.env.example` to `.env` and replace the placeholder with your real Gemini API key.",
       });
     }
 
@@ -129,9 +135,7 @@ Return exactly one JSON object with these fields:
           ],
 
           generationConfig: {
-            responseMimeType: "application/json",
-            maxOutputTokens: 200,
-
+            maxOutputTokens: 500,
             responseSchema: {
               type: "OBJECT",
               properties: {
@@ -152,8 +156,8 @@ Return exactly one JSON object with these fields:
           },
         }),
 
-        // Avoid requests hanging indefinitely.
-        signal: AbortSignal.timeout(25000),
+        // Avoid requests hanging indefinitely; expose as an env var for tuning.
+        signal: AbortSignal.timeout(parseInt(process.env.GEMINI_TIMEOUT_MS ?? "30000")),
       }
     );
 
@@ -161,10 +165,7 @@ Return exactly one JSON object with these fields:
 
     // Handle errors returned by Google's API.
     if (!response.ok) {
-      console.error(
-        "Gemini API error:",
-        data.error?.message || response.statusText
-      );
+      console.error("Gemini API error:", data.error?.message || response.statusText, "status:", response.status);
 
       return res.status(502).json({
         error:
@@ -172,7 +173,9 @@ Return exactly one JSON object with these fields:
       });
     }
 
-    // Extract the generated JSON text.
+    // Extract the generated text and parse it as JSON. If the model emits any
+    // surrounding prose, pull the first JSON object out. A strict parse is tried
+    // first, then a regex fallback extracts the JSON object.
     const aiText = data.candidates?.[0]?.content?.parts
       ?.map((part) => part.text || "")
       .join("")
@@ -184,8 +187,24 @@ Return exactly one JSON object with these fields:
       });
     }
 
-    // Parse and validate the AI response.
-    const result = JSON.parse(aiText);
+    let result;
+    try {
+      result = JSON.parse(aiText);
+    } catch {
+      const match = aiText.match(/\{[\s\S]*\}/);
+      if (!match) {
+        return res.status(502).json({
+          error: "The AI returned no usable analysis. Please try again.",
+        });
+      }
+      try {
+        result = JSON.parse(match[0]);
+      } catch {
+        return res.status(502).json({
+          error: "The AI returned an invalid analysis. Please try again.",
+        });
+      }
+    }
 
     const validStatuses = ["SCAM", "SAFE"];
     const validConfidence = ["high", "medium", "low"];

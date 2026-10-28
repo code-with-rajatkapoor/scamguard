@@ -2,39 +2,256 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'Satoshi';
+  src: url('https://fonts.gstatic.com/s/satoshi/v10/uHP-rU0yDeen_5kVZD0nJ25KrlwamGJsi6UwZ-Z2TA.woff2')
+    format('woff2');
+  font-weight: 400 700;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF,
+    U+FFFD;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-18px) scale(1.04); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+  50% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-20px); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translateY(40px); opacity: 0; }
+}
+
 @keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ===== Theme variables ===== */
+.theme-light {
+  --bg-base: #f1f5f9;
+  --bg-card: #ffffff;
+  --bg-card-2: #f8fafc;
+  --bg-border: #e2e8f0;
+  --bg-border-light: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --accent: #0d9488;
+  --accent-hover: #0f766e;
+  --accent-soft: #ccfbf1;
+  --accent-ring: #0d9488;
+  --danger: #dc2626;
+  --danger-soft: #fecaca;
+  --warning: #d97706;
+  --warning-soft: #fef3c7;
+  --info: #0284c7;
+  --info-soft: #bfdbfe;
+  --shadow: 0 4px 16px rgba(15, 23, 42, 0.15);
+  --shadow-lg: 0 12px 40px rgba(15, 23, 42, 0.25);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --scrollbar-thumb: rgba(148, 163, 184, 0.45);
+}
+
+.theme-dark {
+  --bg-base: #020617;
+  --bg-card: #0f172a;
+  --bg-card-2: #1e293b;
+  --bg-border: #334155;
+  --bg-border-light: #0f172a;
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+  --accent: #0d9488;
+  --accent-hover: #115e59;
+  --accent-soft: #0d9488;
+  --accent-ring: #0d9488;
+  --danger: #ef4444;
+  --danger-soft: #fca5a5;
+  --warning: #d97706;
+  --warning-soft: #fde68a;
+  --info: #3b82f6;
+  --info-soft: #93c5fd;
+  --shadow: 0 4px 16px rgba(2, 6, 23, 0.35);
+  --shadow-lg: 0 12px 40px rgba(2, 6, 23, 0.45);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --scrollbar-thumb: rgba(148, 163, 184, 0.35);
 }
 
 html {
   scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Satoshi', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
 }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* ===== Background ornaments ===== */
+.bg-orb {
+  animation: float 8s ease-in-out infinite;
 }
+.bg-orb:nth-child(1) { animation-delay: 0s; }
+.bg-orb:nth-child(2) { animation-delay: 2.5s; }
+.bg-orb:nth-child(3) { animation-delay: 5s; }
 
-::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.5);
-}
-
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(71, 85, 105, 0.5);
-  border-radius: 4px;
+  background: var(--scrollbar-thumb);
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.6); }
+
+/* ===== Focus ring ===== */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:ring-offset-2 focus:ring-offset-slate-950;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(71, 85, 105, 0.8);
+/* ===== Card hover ===== */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.25s ease;
 }
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ===== Button press ===== */
+.btn-press:active {
+  transform: scale(0.97);
+}
+
+/* ===== Rating pill ===== */
+.rating-dot {
+  width: 8px; height: 8px; border-radius: 9999px;
+  display: inline-block; animation: pulse-glow 2s infinite;
+}
+
+/* ===== Scan line animation for empty state ===== */
+.scan-pulse {
+  animation: scan-line 4s ease-in-out infinite;
+}
+
+/* ===== Theme toggle switch ===== */
+.theme-toggle {
+  @apply relative inline-flex items-center h-7 rounded-full w-12 transition-colors duration-300;
+}
+.theme-toggle input {
+  @apply sr-only;
+}
+.theme-toggle .slider {
+  @apply block relative h-5 w-5 rounded-full bg-white shadow-md transition-transform duration-200;
+}
+.theme-toggle input:checked + .slider {
+  @apply bg-teal-500;
+}
+.theme-toggle input:checked + .slider::after {
+  @apply translate-x-5;
+}
+.theme-toggle .slider::after {
+  content: '';
+  @apply absolute top-1/2 left-1/2 block w-3.5 h-3.5 rounded-full bg-white shadow-md;
+}
+
+/* ===== Light mode overrides (flat selectors) ===== */
+.theme-light {
+  background-color: var(--bg-base) !important;
+}
+.theme-light .bg-slate-950 {
+  background-color: var(--bg-base) !important;
+}
+.theme-light .bg-slate-950\/60,
+.theme-light .bg-slate-900\/60,
+.theme-light .bg-slate-900\/70 {
+  background-color: var(--bg-card) !important;
+}
+.theme-light .bg-slate-900\/40,
+.theme-light .bg-slate-800\/40 {
+  background-color: var(--bg-card-2) !important;
+}
+.theme-light .bg-slate-950\/80,
+.theme-light .bg-slate-950\/50 {
+  background-color: var(--bg-base) !important;
+}
+.theme-light .text-white {
+  color: var(--text-primary) !important;
+}
+.theme-light .text-slate-300 {
+  color: var(--text-secondary) !important;
+}
+.theme-light .text-slate-400,
+.theme-light .text-slate-500,
+.theme-light .text-slate-600 {
+  color: var(--text-muted) !important;
+}
+.theme-light .border-slate-800,
+.theme-light .border-slate-800\/60,
+.theme-light .border-slate-800\/80 {
+  border-color: var(--bg-border) !important;
+}
+.theme-light .border-border-light {
+  border-color: var(--bg-border) !important;
+}
+.theme-light .shadow-lg {
+  box-shadow: var(--shadow) !important;
+}
+.theme-light .shadow-black\/40 {
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.25) !important;
+}
+.theme-light .placeholder\:text-slate-600::-webkit-input-placeholder {
+  color: var(--text-muted) !important;
+}
+.theme-light .placeholder\:text-slate-600::-moz-placeholder {
+  color: var(--text-muted) !important;
+}
+.theme-light .placeholder\:text-slate-600 {
+  color: var(--text-muted) !important;
+}
+.theme-light .focus\:ring-teal-500\/40 {
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+.theme-light .focus\:border-teal-500\/40 {
+  border-color: var(--accent-ring) !important;
+}
+
+/* Re-apply theme-dark color overrides for text elements that must stay dark in dark mode */
+.theme-dark .placeholder\:text-slate-600::-webkit-input-placeholder {
+  color: #475569 !important;
+}
+.theme-dark .placeholder\:text-slate-600::-moz-placeholder {
+  color: #475569 !important;
+}
+.theme-dark .placeholder\:text-slate-600 {
+  color: #475569 !important;
+}
+

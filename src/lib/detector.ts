@@ -50,7 +50,7 @@ const rules: Rule[] = [
     weight: 15,
     category: 'Financial Requests',
     patterns: [
-      /\b(send|wire|transfer|pay|donat(e|ing))\s*(money|funds|cash|payment|\$|dollars?|usd)\b/gi,
+      /\b(send|wire|transfer|pay|donat(e|ing))\s*(money|funds|cash|payment|\$)\b/gi,
       /\b(gift card|itunes|google play|amazon card|steam card|vanilla card|green dot|moneygram|western union|bitcoin|crypto|wallet address)\b/gi,
       /\b(winn(ing|er)|prize|lottery|sweepstakes|inherit(ance|ed)|beneficiary|unclaimed|fund)\b/gi,
       /\b(processing fee|transfer fee|clearance fee|registration fee|delivery fee|release fee)\b/gi,
@@ -98,6 +98,7 @@ const rules: Rule[] = [
       /https?:\/\/[^\s]{0,200}@[^\s]{0,200}/gi,
       /\b(click here|tap here|follow this link|visit\s*(our\s*)?(site|link|page)|go to)\b/gi,
       /https?:\/\/(?!([a-z0-9-]+\.)?(apple|google|microsoft|amazon|paypal|github|wikipedia|youtube|facebook|instagram|twitter|linkedin|netflix)\.com\b)[^\s]{10,80}/gi,
+
     ],
   },
   // Personal Info Requests
@@ -124,7 +125,7 @@ const rules: Rule[] = [
     patterns: [
       /\b(free|guaranteed|100%|risk.?free|no (cost|fee|obligation|strings attached)|easy money|work from home|earn \$\d+|make \$\d+)/gi,
       /\b(selected|chosen|qualified|approved|eligible) (for|to (receive|get|win))\b/gi,
-      /\b(\$\d{3,}\s*(free|bonus|reward|prize|gift)|\$\d{4,})\b/gi,
+      /\b\$\d{3,}\s*(free|bonus|reward|prize|gift)|\$\d{4,}\b/gi,
     ],
   },
   // Unusual Sender / Greeting
@@ -254,6 +255,11 @@ function collectRuleMatches(text: string, rule: Rule): ThreatMatch[] {
   return found;
 }
 
+/**
+ * Analyze text for phishing and scam indicators.
+ * @param text - The text to analyze
+ * @returns ScanResult with risk score, indicators, and summary
+ */
 export function analyzeText(text: string): ScanResult {
   const trimmed = text.slice(0, MAX_INPUT_LENGTH).trim();
   const indicators: DetectedIndicator[] = [];
@@ -297,8 +303,10 @@ export function analyzeText(text: string): ScanResult {
 
   matches.sort((a, b) => a.start - b.start || a.end - b.end);
 
-  // Normalize score to 0-100 with diminishing returns
-  const normalizedScore = isEmpty ? 0 : Math.min(100, Math.round(rawScore * 1.8));
+  // Normalize score to 0-100. The multiplier gives combined indicators
+  // enough weight to reach the "danger" band, while a single weak rule stays
+  // in the caution range.
+  const normalizedScore = isEmpty ? 0 : Math.min(100, Math.round(rawScore * 2.0));
 
   let riskLevel: RiskLevel = 'safe';
   if (normalizedScore >= 65) riskLevel = 'danger';
