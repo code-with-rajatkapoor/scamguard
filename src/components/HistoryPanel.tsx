@@ -1,4 +1,4 @@
-import { History, Trash2, ShieldCheck, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { History, Trash2, ShieldCheck, AlertTriangle, ShieldAlert, Clock } from 'lucide-react';
 import type { ScanRecord } from '@/types';
 
 interface HistoryPanelProps {
@@ -40,7 +40,7 @@ function timeAgo(dateString: string): string {
 
 export default function HistoryPanel({ history, onSelect, onDelete }: HistoryPanelProps) {
   return (
-    <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-2xl overflow-hidden">
+    <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-2xl overflow-hidden card-hover">
       <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-800">
         <History className="w-5 h-5 text-slate-400" />
         <h3 className="font-semibold text-white">Scan History</h3>
@@ -52,8 +52,8 @@ export default function HistoryPanel({ history, onSelect, onDelete }: HistoryPan
           <p className="text-sm text-slate-500">No scans yet. Your analysis history will appear here.</p>
         </div>
       ) : (
-        <div className="max-h-[600px] overflow-y-auto divide-y divide-slate-800/60">
-          {history.map((record) => {
+        <div className="max-h-[600px] overflow-y-auto">
+          {history.map((record, idx) => {
             const Icon = levelIcon[record.risk_level];
             const color = levelColor[record.risk_level];
             const bg = levelBg[record.risk_level];
@@ -63,10 +63,11 @@ export default function HistoryPanel({ history, onSelect, onDelete }: HistoryPan
             return (
               <div
                 key={record.id}
-                className="group flex items-start gap-3 px-5 py-3.5 hover:bg-slate-800/40 cursor-pointer transition-colors"
+                className="group flex items-start gap-3 px-5 py-3.5 hover:bg-slate-800/40 cursor-pointer transition-colors card-hover"
+                style={{ animationDelay: `${idx * 40}ms` }}
                 onClick={() => onSelect(record)}
               >
-                <div className={`shrink-0 w-9 h-9 rounded-lg border flex items-center justify-center ${bg}`}>
+                <div className={`shrink-0 w-9 h-9 rounded-lg border flex items-center justify-center transition-transform duration-200 group-hover:scale-110 ${bg}`}>
                   <Icon className={`w-4 h-4 ${color}`} />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -78,7 +79,10 @@ export default function HistoryPanel({ history, onSelect, onDelete }: HistoryPan
                     <span className="text-xs text-slate-600">·</span>
                     <span className="text-xs text-slate-500">Score: {record.risk_score}</span>
                     <span className="text-xs text-slate-600">·</span>
-                    <span className="text-xs text-slate-500">{timeAgo(record.created_at)}</span>
+                    <span className="text-xs text-slate-500 flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {timeAgo(record.created_at)}
+                    </span>
                   </div>
                 </div>
                 <button

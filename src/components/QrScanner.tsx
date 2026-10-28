@@ -13,11 +13,6 @@ interface QrScannerProps {
   className?: string;
 }
 
-/**
- * QR Code Scanner component
- * Uses html5-qrcode to scan QR codes via the device camera.
- * Scans are NOT stored in history — they are sent directly to the analyzer.
- */
 export default function QrScanner({
   onScan,
   autoStart = true,
@@ -27,20 +22,14 @@ export default function QrScanner({
   const [isScanning, setIsScanning] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [cameraFacing, setCameraFacing] = useState<"user" | "environment">("user");
 
   const qrCodeScannerRef = useRef<Html5Qrcode | null>(null);
 
-  // Initialize the QR scanner
   const initializeScanner = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      // Request camera access
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-
-      // Find the camera container element
       const cam = document.getElementById("qr-camera");
       if (!cam) {
         throw new Error("Camera container not found. Make sure the component is mounted correctly.");
@@ -54,35 +43,24 @@ export default function QrScanner({
       const config: Html5QrcodeCameraScanConfig = {
         fps: 10,
         aspectRatio: 16 / 9,
-        videoConstraints: { facingMode: cameraFacing },
+        videoConstraints: { facingMode: "user" },
         disableFlip: false,
       };
 
       await qrCodeScannerRef.current.start(
-        stream,
+        { facingMode: "user" },
         config,
         (decodedText) => {
-          // Call the onScan callback with the scanned content
           if (onScan && decodedText) {
             onScan(decodedText);
           }
         },
         (errorMessage) => {
-          // Ignore scanning errors for now
           console.warn("QR scan error:", errorMessage);
         }
       );
 
       setIsScanning(true);
-      stream.getTracks().forEach((track) => {
-        if (track.kind === "video") {
-          track.onended = () => {
-            setError("Camera stream ended unexpectedly. Please restart the scanner.");
-            setIsScanning(false);
-            setIsLoading(false);
-          };
-        }
-      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to start QR scanner";
       setError(message);
@@ -90,14 +68,12 @@ export default function QrScanner({
     } finally {
       setIsLoading(false);
     }
-  }, [onScan, cameraFacing]);
+  }, [onScan]);
 
-  // Start scanning
   const startScanning = useCallback(() => {
     initializeScanner();
   }, [initializeScanner]);
 
-  // Stop scanning
   const stopScanning = useCallback(() => {
     if (qrCodeScannerRef.current) {
       qrCodeScannerRef.current.stop().catch(() => {});
@@ -105,7 +81,6 @@ export default function QrScanner({
     }
   }, []);
 
-  // Restart scanning
   const restartScanning = useCallback(() => {
     stopScanning();
     setTimeout(() => {
@@ -113,21 +88,13 @@ export default function QrScanner({
     }, 500);
   }, [stopScanning, initializeScanner]);
 
-  // Toggle camera facing
-  const toggleCamera = useCallback(() => {
-    setCameraFacing((prev) => (prev === "user" ? "environment" : "user"));
-  }, []);
-
-  // Cleanup on unmount
   useEffect(() => {
-    // If autoStart is true, start scanning after a short delay
     if (autoStart) {
       const timer = setTimeout(() => startScanning(), 300);
       return () => clearTimeout(timer);
     }
   }, [autoStart, startScanning]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (qrCodeScannerRef.current) {
@@ -137,65 +104,73 @@ export default function QrScanner({
   }, []);
 
   return (
-    <div className={`qr-scanner-wrapper ${className}`}>
-      <div className="qr-scanner-header">
-        <div className="qr-scanner-title">
-          <Camera size={20} className="mr-2" />
-          {isScanning ? "Scanning" : "Scan QR"}
+    <div className={`space-y-4 ${className}`}>
+      <div className="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-4 backdrop-blur-sm sm:p-5 card-hover">
+        <div className="flex items-center gap-2 mb-4">
+          <Camera className="h-5 w-5 text-teal-400" />
+          <h3 className="text-sm font-semibold text-white">Camera QR Scanner</h3>
+          <span className="ml-auto text-xs text-slate-500">Scan via camera</span>
         </div>
-        <div className="qr-scanner-actions">
-          <button
-            type="button"
-            onClick={toggleCamera}
-            className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-            title="Toggle camera (front/back)"
+
+        <div className="relative rounded-xl overflow-hidden bg-slate-950/50 border border-slate-800/80">
+          <div
+            id="qr-camera"
+            className="qr-scanner-view w-full"
+            style={{ minHeight: "200px" }}
           >
-            <RefreshCw size={18} />
-          </button>
+            {isLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-950/30 z-10">
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Initializing camera...
+                </div>
+              </div>
+            )}
+            {!isLoading && !isScanning && error && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/40 z-10 rounded-xl">
+                <p className="text-sm text-red-400 text-center px-4">{error}</p>
+                <button
+                  type="button"
+                  onClick={restartScanning}
+                  className="mt-3 px-4 py-2 text-sm bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {!isLoading && !isScanning && !error && (
+              <div className="qr-scanner-idle absolute inset-0 flex flex-col items-center justify-center bg-slate-950/30 z-10 rounded-xl">
+                <ScanLine className="h-12 w-12 text-slate-600" />
+                <p className="mt-3 text-sm text-slate-400">
+                  Point your camera at a QR code
+                </p>
+                <p className="text-xs text-slate-600 mt-1">
+                  The scanner will automatically detect and read QR codes
+                </p>
+              </div>
+            )}
+            {isScanning && (
+              <div className="scan-line-overlay absolute inset-0" />
+            )}
+          </div>
+
+          <div className="qr-scanner-footer flex justify-end">
+            {showRestartButton && !isLoading && (
+              <button
+                type="button"
+                onClick={isScanning ? stopScanning : startScanning}
+                className={`qr-scanner-toggle-btn rounded-lg px-4 py-2 text-sm font-semibold transition-all active:scale-[0.97] shadow-lg ${
+                  isScanning
+                    ? "bg-red-500 hover:bg-red-600 text-white"
+                    : "bg-green-500 hover:bg-green-600 text-white"
+                }`}
+                disabled={isLoading}
+              >
+                {isScanning ? "Stop" : "Start Scanning"}
+              </button>
+            )}
+          </div>
         </div>
-      </div>
-
-      <div
-        id="qr-camera"
-        className="qr-scanner-view"
-        style={{ minHeight: "200px" }}
-      >
-        {isLoading && <div className="qr-scanner-loading">Initializing camera...</div>}
-        {!isLoading && !isScanning && error && (
-          <div className="qr-scanner-error">
-            <p>{error}</p>
-            <button
-              type="button"
-              onClick={restartScanning}
-              className="mt-2 px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-            >
-              Retry
-            </button>
-          </div>
-        )}
-        {!isLoading && !isScanning && !error && (
-          <div className="qr-scanner-idle">
-            <ScanLine size={32} />
-            <p>Point your camera at a QR code</p>
-          </div>
-        )}
-      </div>
-
-      <div className="qr-scanner-footer">
-        {showRestartButton && !isLoading && (
-          <button
-            type="button"
-            onClick={isScanning ? stopScanning : startScanning}
-            className={`qr-scanner-toggle-btn ${
-              isScanning
-                ? "bg-red-500 hover:bg-red-600 text-white"
-                : "bg-green-500 hover:bg-green-600 text-white"
-            } rounded-lg px-4 py-2 transition-colors`}
-            disabled={isLoading}
-          >
-            {isScanning ? "Stop" : "Start Scanning"}
-          </button>
-        )}
       </div>
     </div>
   );

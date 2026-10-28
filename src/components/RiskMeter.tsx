@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RiskLevel } from '@/types';
 
 interface RiskMeterProps {
@@ -32,11 +32,14 @@ const levelConfig: Record<RiskLevel, { label: string; color: string; ringColor: 
 
 export default function RiskMeter({ score, level }: RiskMeterProps) {
   const [animatedScore, setAnimatedScore] = useState(0);
+  const [pulse, setPulse] = useState(false);
+  const animatedScoreRef = useRef(animatedScore);
+  animatedScoreRef.current = animatedScore;
   const config = levelConfig[level];
 
   useEffect(() => {
     const duration = 900;
-    const start = animatedScore;
+    const start = animatedScoreRef.current;
     const diff = score - start;
     const startTime = performance.now();
 
@@ -48,11 +51,16 @@ export default function RiskMeter({ score, level }: RiskMeterProps) {
       setAnimatedScore(Math.round(start + diff * eased));
       if (progress < 1) {
         frame = requestAnimationFrame(animate);
+      } else {
+        // Trigger pulse glow on completion
+        setPulse(true);
+        const timer = setTimeout(() => setPulse(false), 800);
+        return () => clearTimeout(timer);
       }
     };
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
-  }, [score]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [score]);
 
   const radius = 80;
   const circumference = 2 * Math.PI * radius;
@@ -83,12 +91,12 @@ export default function RiskMeter({ score, level }: RiskMeterProps) {
             strokeDashoffset={offset}
             style={{
               transition: 'stroke 0.4s ease',
-              filter: `drop-shadow(0 0 8px ${config.color}80)`,
+              filter: `drop-shadow(0 0 12px ${config.color}80)`,
             }}
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-5xl font-bold tabular-nums text-white">
+          <span className={`text-5xl font-bold tabular-nums text-white ${pulse ? 'animate-pulse' : ''}`}>
             {animatedScore}
           </span>
           <span className="text-sm font-medium text-slate-400 mt-1">Risk Score</span>

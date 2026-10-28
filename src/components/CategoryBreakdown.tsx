@@ -5,14 +5,14 @@ interface CategoryBreakdownProps {
 }
 
 const barColors = [
-  'bg-red-500',
-  'bg-amber-500',
-  'bg-sky-500',
-  'bg-violet-500',
-  'bg-teal-500',
-  'bg-rose-500',
-  'bg-indigo-500',
-  'bg-cyan-500',
+  'bg-gradient-to-r from-red-500 to-red-400',
+  'bg-gradient-to-r from-amber-500 to-amber-400',
+  'bg-gradient-to-r from-sky-500 to-sky-400',
+  'bg-gradient-to-r from-violet-500 to-violet-400',
+  'bg-gradient-to-r from-teal-500 to-teal-400',
+  'bg-gradient-to-r from-rose-500 to-rose-400',
+  'bg-gradient-to-r from-indigo-500 to-indigo-400',
+  'bg-gradient-to-r from-cyan-500 to-cyan-400',
 ];
 
 export default function CategoryBreakdown({ breakdown }: CategoryBreakdownProps) {
