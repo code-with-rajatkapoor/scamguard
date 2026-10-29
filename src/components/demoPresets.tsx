@@ -1,4 +1,4 @@
-import { Landmark, Gift, Briefcase, BadgeCheck } from 'lucide-react';
+import { Landmark, Gift, Briefcase, BadgeCheck, Phone, MessageSquare, ShieldAlert, AlertTriangle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 export interface DemoPreset {
@@ -62,5 +62,45 @@ I've booked the 10:30 AM slot on the team calendar. Please bring the latest desi
 
 Best,
 Amit`,
+  },
+  {
+    id: 'romance-scam',
+    label: '💕 Romance Scam',
+    icon: MessageSquare,
+    accent:
+      'border-pink-500/30 bg-pink-500/10 text-pink-200 hover:border-pink-400/60 hover:bg-pink-500/20 hover:text-white',
+    text: `Hello my dear, I am a US soldier deployed overseas in Afghanistan. I found $2.5 million in a cave and need your help to transfer it. I love you and want to spend my life with you.
+
+Please send your bank account details and $500 for processing fees. I will repay you double, my darling.`,
+  },
+  {
+    id: 'fake-domain',
+    label: '🌐 Fake Domain Alert',
+    icon: ShieldAlert,
+    accent:
+      'border-red-500/30 bg-red-500/10 text-red-200 hover:border-red-400/60 hover:bg-red-500/20 hover:text-white',
+    text: `Dear customer, your Paytm wallet and SBI Yono access will be blocked in 2 hours. Verify now at http://paytm-verify.com/login and https://sbi-login.net/kyc. HDFC users must also update details at hdfc-bank-update.xyz to avoid account freeze.`,
+  },
+  {
+    id: 'smishing',
+    label: '📱 Smishing (SMS Phishing)',
+    icon: Phone,
+    accent:
+      'border-green-500/30 bg-green-500/10 text-green-200 hover:border-green-400/60 hover:bg-green-500/20 hover:text-white',
+    text: `Your package has been seized by customs. Pay $45 clearance fee within 24 hours at http://customs-fee-urgent.xyz to receive your shipment.
+
+Delivery failed — click here to reschedule: http://reschedule-package.net
+
+Contact: +91-98765-43210 (WhatsApp preferred)`,
+  },
+  {
+    id: 'fake-login',
+    label: '🔐 Fake Login Page',
+    icon: AlertTriangle,
+    accent:
+      'border-orange-500/30 bg-orange-500/10 text-orange-200 hover:border-orange-400/60 hover:bg-orange-500/20 hover:text-white',
+    text: `Your Google account will be deactivated in 4 hours. Click here to verify: https://google-login-verify.net/signin
+
+Enter your email and password to continue. Your account will be permanently deleted if you don't act now.`,
   },
 ];

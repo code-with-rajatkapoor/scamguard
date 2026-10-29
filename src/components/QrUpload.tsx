@@ -35,11 +35,8 @@ export default function QrUpload() {
     setProgress({ status: "processing", message: "Scanning QR code..." });
 
     try {
-      const cam = document.getElementById("qr-upload-camera");
-      if (!cam) {
-        throw new Error("QR upload container not found");
-      }
-
+      // The html5-qrcode scanFile can decode a file directly; no camera element is needed
+      // for file-based scanning (unlike the camera scanner).
       qrScannerRef.current = new Html5Qrcode("qr-upload-camera", {
         verbose: false,
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
@@ -57,7 +54,7 @@ export default function QrUpload() {
 
       setProgress({ status: "complete", message: "QR code decoded successfully" });
 
-      // Invalidate the cache so it can be re-read
+      // Invalidate the instance so it can be re-created on the next upload
       qrScannerRef.current = null;
     } catch (err) {
       setProgress({ status: "error", message: err instanceof Error ? err.message : "Failed to decode QR code" });

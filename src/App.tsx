@@ -13,6 +13,7 @@ import { ShieldCheck,
   X,
   QrCode,
   Shield,
+  FileJson,
 } from 'lucide-react';
 import { analyzeText, MAX_INPUT_LENGTH } from './lib/detector';
 import { supabase } from './lib/supabase';
@@ -26,6 +27,8 @@ import { demoPresets, type DemoPreset } from './components/demoPresets';
 import QrScanner from './components/QrScanner';
 import QrUpload from './components/QrUpload';
 import ScreenshotScanner from './components/ScreenshotScanner';
+import UrlScanner from './components/UrlScanner';
+import VoiceInput from './components/VoiceInput';
 
 const exampleTexts = [
   {
@@ -288,6 +291,7 @@ export default function App() {
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [analyzedAt, setAnalyzedAt] = useState<Date | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingJson, setExportingJson] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [exportingCsv, setExportingCsv] = useState(false);
@@ -397,6 +401,37 @@ export default function App() {
       console.error('Failed to export incident report:', error);
     } finally {
       setExportingPdf(false);
+    }
+  };
+
+  const handleExportJson = async () => {
+    if (!result || exportingJson) return;
+    setExportingJson(true);
+    try {
+      const report = {
+        reportType: 'scam-guard-analysis',
+        exportedAt: new Date().toISOString(),
+        sourceText: inputText.trim() || result.summary,
+        result,
+        metadata: {
+          version: '1.0.0',
+          engine: 'rule-based',
+          analysisTimestamp: new Date().toISOString(),
+        },
+      };
+      const blob = new Blob([JSON.stringify(report, null, 2)], {
+        type: 'application/json;charset=utf-8;',
+      });
+      const link = document.createElement('a');
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[^0-9]/g, '');
+      link.href = URL.createObjectURL(blob);
+      link.download = `scamguard-report-${timestamp}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (error) {
+      console.error('Failed to export JSON:', error);
+    } finally {
+      setExportingJson(false);
     }
   };
 
@@ -788,6 +823,23 @@ export default function App() {
                             </>
                           )}
                         </button>
+                        <button
+                          onClick={handleExportJson}
+                          disabled={exportingJson}
+                          className="btn btn-ghost flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium text-white transition-all hover:bg-slate-800 hover:border-indigo-500/30"
+                        >
+                          {exportingJson ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Preparing JSON...
+                            </>
+                          ) : (
+                            <>
+                              <FileJson className="h-4 w-4 text-indigo-400" />
+                              Export JSON
+                            </>
+                          )}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -946,6 +998,32 @@ export default function App() {
                   }
                 }}
                 autoStart={false}
+              />
+
+              {/* Voice Input */}
+              <div className="mt-3">
+                <VoiceInput
+                  onChange={(text) => {
+                    setInputText(text);
+                    setActivePresetId(null);
+                    if (result) {
+                      setResult(null);
+                      setSavedToHistory(false);
+                      setAnalyzedAt(null);
+                    }
+                  }}
+                />
+              </div>
+
+              <UrlScanner
+                onScan={(url, result) => {
+                  setInputText(url);
+                  setActivePresetId(null);
+                  if (result) {
+                    setResult(result);
+                    setAnalyzedAt(new Date());
+                  }
+                }}
               />
 
               <ScreenshotScanner />

@@ -3,6 +3,8 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
+import morgan from "morgan";
 
 const app = express();
 
@@ -34,13 +36,33 @@ app.use(
   })
 );
 
+// Rate limiting: 100 requests per 15 minutes per IP
+const rateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+});
+
+app.use("/api", rateLimiter);
+
+// Request logging (skip health checks)
+app.use(morgan("combined", { skip: (req) => req.path === "/health" }));
+
 // Limit request size to prevent unnecessarily large submissions.
 app.use(express.json({ limit: "20kb" }));
 // Health check: confirms that the backend is running
 app.get("/", (req, res) => {
   res.json({
-    message: "ScamGuard API is running!",
-    endpoint: "POST /api/analyze",
+    status: "ok",
+    service: "ScamGuard API",
+    version: "1.0.0",
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      analyze: "POST /api/analyze",
+      health: "GET /health",
+    },
   });
 });
 
@@ -236,7 +258,31 @@ Return exactly one JSON object with these fields:
   }
 });
 
-// Start the server.
+// 404 handler (must be registered BEFORE error handler)
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found", path: req.path });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err);
+
+  // Check if the error is already handled
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({ error: "Request body too large." });
+  }
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  res.status(500).json({
+    error: "Internal server error",
+    message: process.env.NODE_ENV === "development" ? err.message : undefined,
+  });
+});
+
+// Start the server
 app.listen(PORT, () => {
   console.log(`ScamGuard API running at http://localhost:${PORT}`);
 });
