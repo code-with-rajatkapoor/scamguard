@@ -29,6 +29,7 @@ import QrUpload from './components/QrUpload';
 import ScreenshotScanner from './components/ScreenshotScanner';
 import UrlScanner from './components/UrlScanner';
 import VoiceInput from './components/VoiceInput';
+import BulkAnalyzer from './components/BulkAnalyzer';
 
 const exampleTexts = [
   {
@@ -1029,6 +1030,40 @@ export default function App() {
               <ScreenshotScanner />
 
               <QrUpload />
+
+              {/* Bulk Analyzer */}
+              <div className="mt-3">
+                <BulkAnalyzer
+                  onComplete={(results) => {
+                    setInputText("");
+                    if (results.length > 0) {
+                      const firstResult = results[0];
+                      setResult({
+                        riskScore: firstResult.riskScore,
+                        riskLevel: firstResult.riskLevel,
+                        indicators: firstResult.indicators,
+                        matches: [],
+                        summary: firstResult.reason,
+                        breakdown: [],
+                      });
+                      setAnalyzedAt(new Date());
+                      setSavedToHistory(false);
+                      setHistory((prev) => [
+                        {
+                          id: `bulk-${Date.now()}`,
+                          input_text: results.map((r) => r.text).join("\n\n"),
+                          risk_score: firstResult.riskScore,
+                          risk_level: firstResult.riskLevel,
+                          detected_indicators: firstResult.indicators,
+                          summary: firstResult.reason,
+                          created_at: new Date().toISOString(),
+                        },
+                        ...prev,
+                      ]);
+                    }
+                  }}
+                />
+              </div>
             </aside>
           </div>
         </main>

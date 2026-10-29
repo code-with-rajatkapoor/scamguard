@@ -258,7 +258,284 @@ Return exactly one JSON object with these fields:
   }
 });
 
-// 404 handler (must be registered BEFORE error handler)
+// POST /api/expand - Follow URL redirects (URL shortener expansion)
+// Accepts: { url: string }
+// Returns: redirect chain with status codes and final destination
+app.post('/api/expand', async (req, res) => {
+  try {
+    const input = req.body?.url ?? req.body?.url ?? req.body?.url ?? req.body?.url;
+
+    if (typeof input !== 'string' || !input.trim()) {
+      return res.status(400).json({
+        error: 'Please provide a URL using the url field.',
+      });
+    }
+
+    const urlString = input.trim();
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(urlString);
+    } catch {
+      return res.status(400).json({
+        error: 'Invalid URL format.',
+      });
+    }
+
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return res.status(400).json({
+        error: 'URL must use http:// or https:// protocol.',
+      });
+    }
+
+    const maxRedirects = 5;
+    const redirectChain = [];
+    let currentUrl = parsedUrl;
+    let step = 0;
+    let isDone = false;
+
+    const fetchStep = async () => {
+      if (step >= maxRedirects || isDone) {
+        return;
+      }
+      step++;
+
+      const httpModule = currentUrl.protocol === "https:" ? (await import("https")).default : (await import("http")).default;
+      const requestOptions = {
+        hostname: currentUrl.hostname,
+        port: currentUrl.port || (currentUrl.protocol === "https:" ? 443 : 80),
+        path: currentUrl.pathname + currentUrl.search || "/",
+        method: "GET",
+        timeout: 10000,
+        headers: {
+          "User-Agent": "ScamGuard-Backend/1.0",
+          "Accept": "*/*",
+          "FollowRedirect": "false",
+        },
+      };
+
+      const req = httpModule.request(requestOptions, (response) => {
+        let data = "";
+        response.on("data", (chunk) => { data += chunk; });
+        response.on("end", () => {
+          const redirectUrl = response.headers.location;
+          redirectChain.push({
+            step: step,
+            originalUrl: currentUrl.toString(),
+            status: response.statusCode,
+            redirectedTo: redirectUrl ? new URL(redirectUrl, currentUrl.toString()).toString() : null,
+          });
+
+          if (redirectUrl) {
+            try {
+              const redirectParsed = new URL(redirectUrl, currentUrl.toString());
+              currentUrl = redirectParsed;
+            } catch {
+              isDone = true;
+            }
+          } else {
+            isDone = true;
+          }
+          fetchStep();
+        });
+      });
+
+      req.on("timeout", () => {
+        req.destroy(new Error("Request timed out"));
+      });
+
+      req.on("error", (err) => {
+        redirectChain.push({
+          step: step,
+          originalUrl: currentUrl.toString(),
+          status: 0,
+          redirectedTo: null,
+          error: err.message,
+        });
+        isDone = true;
+        fetchStep();
+      });
+
+      req.end();
+    };
+
+    await fetchStep();
+
+    const redirectCount = redirectChain.filter((r) => r.redirectedTo !== null).length;
+
+    res.json({
+      originalUrl: urlString,
+      finalUrl: currentUrl.toString(),
+      redirectChain,
+      redirectCount,
+      suspicious: redirectCount > 0 && redirectCount < maxRedirects && redirectChain.some((r) => r.redirectedTo && r.redirectedTo !== r.originalUrl),
+    });
+  } catch (error) {
+    console.error('ScamGuard expand error:', error.message);
+    return res.status(500).json({
+      error: 'Failed to expand URL.',
+      message: error.message,
+    });
+  }
+});
+
+// Known phishing domains database (v1.0)
+// Add new domains to this list to get instant "KNOWN PHISHING" verdicts.
+const KNOWN_PHISHING_DOMAINS = [
+  "paypa1.com",
+  "secure-bank-update.com",
+  "apple-id-login.com",
+  "netfilx-verify.netlify.app",
+  "amazon-prime-offer.com",
+  "google-login-verify.com",
+  "crypto-wallet-check.com",
+  "bank-verify-now.com",
+  "steam-account-locked.com",
+  "facebook-password-reset.com",
+  "whatsapp-verification.com",
+  "microsoft-secure-login.com",
+  "apple-support-harvard.com",
+  "cloudflare-verify.com",
+  "paypal-account-locked.com",
+];
+
+// GET /api/phishing-domains - Check if a domain is in the known phishing list
+// Accepts: { domain: string }
+// Returns: { isKnownPhishing: boolean, matchedDomain?: string, allKnown: string[] }
+app.post("/api/phishing-domains", (req, res) => {
+  try {
+    const input = req.body?.domain ?? req.body?.domain ?? req.body?.domain;
+
+    if (typeof input !== "string" || !input.trim()) {
+      return res.status(400).json({
+        error: "Please provide a domain using the 'domain' field.",
+      });
+    }
+
+    const domain = input.trim().toLowerCase();
+    const normalizedDomain = domain.replace(/^https?:\/\//, "").split("/")[0];
+
+    const matched = KNOWN_PHISHING_DOMAINS.find(
+      (known) => known.toLowerCase() === normalizedDomain
+    );
+
+    res.json({
+      isKnownPhishing: matched !== undefined,
+      matchedDomain: matched || undefined,
+      allKnown: KNOWN_PHISHING_DOMAINS,
+    });
+  } catch (error) {
+    console.error("ScamGuard phishing-domains error:", error.message);
+    return res.status(500).json({
+      error: "Failed to check phishing domains.",
+      message: error.message,
+    });
+  }
+});
+
+// POST /api/analyze-bulk - Analyze multiple texts at once
+// Accepts: { texts: string[] }
+// Returns: { results: { status, confidence, reason }[] }
+app.post("/api/analyze-bulk", async (req, res) => {
+  try {
+    const input = req.body?.texts ?? req.body?.texts ?? req.body?.texts;
+
+    if (!Array.isArray(input)) {
+      return res.status(400).json({
+        error: "Please provide texts as an array: { texts: string[] }",
+      });
+    }
+
+    const texts = input.filter((t) => typeof t === "string" && t.trim().length > 0);
+    if (texts.length === 0) {
+      return res.status(400).json({ error: "Please provide at least one non-empty text." });
+    }
+
+    if (texts.length > 20) {
+      return res.status(400).json({ error: "Maximum 20 texts per request." });
+    }
+
+    const results = await Promise.all(
+      texts.map(async (text) => {
+        try {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-goog-api-key": GEMINI_API_KEY,
+              },
+              body: JSON.stringify({
+                systemInstruction: {
+                  parts: [{ text: "You are ScamGuard, an AI assistant that detects phishing attempts, online scams, fraudulent messages, and suspicious emails or URLs. Analyze the content and classify it as SCAM or SAFE." }],
+                },
+                contents: [
+                  {
+                    role: "user",
+                    parts: [{ text: text }],
+                  },
+                ],
+                generationConfig: {
+                  maxOutputTokens: 300,
+                  responseSchema: {
+                    type: "OBJECT",
+                    properties: {
+                      status: { type: "STRING", enum: ["SCAM", "SAFE"] },
+                      confidence: { type: "STRING", enum: ["high", "medium", "low"] },
+                      reason: { type: "STRING" },
+                    },
+                    required: ["status", "confidence", "reason"],
+                  },
+                },
+              }),
+              signal: AbortSignal.timeout(parseInt(process.env.GEMINI_TIMEOUT_MS ?? "30000")),
+            }
+          );
+
+          const data = await response.json();
+          if (!response.ok) {
+            return { status: "UNKNOWN", confidence: "low", reason: "AI analysis failed" };
+          }
+
+          const aiText = data.candidates?.[0]?.content?.parts
+            ?.map((part) => part.text || "")
+            .join("")
+            .trim();
+
+          if (!aiText) {
+            return { status: "UNKNOWN", confidence: "low", reason: "No analysis returned" };
+          }
+
+          let result;
+          try {
+            result = JSON.parse(aiText);
+          } catch {
+            const match = aiText.match(/\{([\s\S]*)\}/);
+            if (!match) return { status: "UNKNOWN", confidence: "low", reason: "Invalid JSON" };
+            result = JSON.parse(match[0]);
+          }
+
+          return {
+            status: result.status || "UNKNOWN",
+            confidence: result.confidence || "low",
+            reason: result.reason || "No reason provided",
+          };
+        } catch (err) {
+          return { status: "UNKNOWN", confidence: "low", reason: err.message };
+        }
+      })
+    );
+
+    res.json({ results });
+  } catch (error) {
+    console.error("ScamGuard bulk analyze error:", error.message);
+    return res.status(500).json({
+      error: "Bulk analysis failed.",
+      message: error.message,
+    });
+  }
+});
+
 app.use((req, res) => {
   res.status(404).json({ error: "Not found", path: req.path });
 });
