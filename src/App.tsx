@@ -30,6 +30,7 @@ import ScreenshotScanner from './components/ScreenshotScanner';
 import UrlScanner from './components/UrlScanner';
 import VoiceInput from './components/VoiceInput';
 import BulkAnalyzer from './components/BulkAnalyzer';
+import AnalyticsDashboard from './components/AnalyticsDashboard';
 
 const exampleTexts = [
   {
@@ -961,6 +962,11 @@ export default function App() {
                     </>
                   )}
                 </button>
+              </div>
+
+              {/* Analytics Dashboard */}
+              <div className="mb-4">
+                <AnalyticsDashboard history={history} />
               </div>
 
               <div className="glass rounded-2xl bg-gradient-to-br from-indigo-500/5 to-cyan-500/5 p-5 backdrop-blur-sm">
