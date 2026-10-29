@@ -66,6 +66,16 @@ app.get("/", (req, res) => {
   });
 });
 
+// Health check (lightweight, no logging)
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    service: "ScamGuard API",
+    version: "1.0.0",
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // POST /api/analyze
 app.post("/api/analyze", async (req, res) => {
   try {

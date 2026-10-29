@@ -1,4 +1,5 @@
-import { History, Trash2, ShieldCheck, AlertTriangle, ShieldAlert, Clock } from 'lucide-react';
+import { useState } from 'react';
+import { History, Trash2, ShieldCheck, AlertTriangle, ShieldAlert, Clock, Download, Loader2 } from 'lucide-react';
 import type { ScanRecord } from '@/types';
 
 interface HistoryPanelProps {
@@ -39,6 +40,45 @@ function timeAgo(dateString: string): string {
 }
 
 export default function HistoryPanel({ history, onSelect, onDelete }: HistoryPanelProps) {
+  const [exportingFiltered, setExportingFiltered] = useState(false);
+
+  const filtered = history.filter((h) => h.risk_level === 'danger' || h.risk_level === 'caution');
+
+  const handleExportFiltered = async () => {
+    if (filtered.length === 0) return;
+
+    setExportingFiltered(true);
+    try {
+      // Export as JSON
+      const jsonBlob = new Blob([JSON.stringify(filtered, null, 2)], { type: 'application/json;charset=utf-8;' });
+      const jsonLink = document.createElement('a');
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[^0-9]/g, '');
+      jsonLink.href = URL.createObjectURL(jsonBlob);
+      jsonLink.download = `scamguard-filtered-${timestamp}.json`;
+      jsonLink.click();
+      URL.revokeObjectURL(jsonLink.href);
+
+      // Export as CSV
+      const headers = ['Timestamp', 'Risk Score', 'Risk Level', 'Indicators', 'Summary'];
+      const rows = filtered.map((h) => [
+        h.created_at || '',
+        h.risk_score?.toString() || '',
+        h.risk_level || '',
+        `${h.detected_indicators?.length || 0}`,
+        `${h.summary?.replace(/"/g, '""') || ''}"`,
+      ]);
+      const csvContent = [headers, ...rows].map((r) => r.join(',')).join('\n');
+      const csvBlob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const csvLink = document.createElement('a');
+      csvLink.href = URL.createObjectURL(csvBlob);
+      csvLink.download = `scamguard-filtered-${timestamp}.csv`;
+      csvLink.click();
+      URL.revokeObjectURL(csvLink.href);
+    } finally {
+      setExportingFiltered(false);
+    }
+  };
+
   return (
     <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-2xl overflow-hidden card-hover">
       <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-800">
@@ -100,6 +140,25 @@ export default function HistoryPanel({ history, onSelect, onDelete }: HistoryPan
           })}
         </div>
       )}
+      <div className="border-t border-slate-800 px-5 py-4">
+        <button
+          onClick={handleExportFiltered}
+          disabled={filtered.length === 0 || exportingFiltered}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-sm font-medium text-white transition-all hover:border-indigo-500/40 hover:bg-indigo-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {exportingFiltered ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Preparing...
+            </>
+          ) : (
+            <>
+              <Download className="h-4 w-4 text-indigo-400" />
+              Export danger&amp;caution only (JSON + CSV)
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
 }

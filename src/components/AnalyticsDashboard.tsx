@@ -97,14 +97,69 @@ export default function AnalyticsDashboard({ history }: AnalyticsDashboardProps)
     const sorted = [...filtered].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
     // Group by day
-    const dailyMap = new Map<string, number>();
+    const dailyMap = new Map<string, { count: number; riskScore: number; danger: number; safe: number }>();
     sorted.forEach((r) => {
       const date = new Date(r.created_at);
       const key = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      dailyMap.set(key, (dailyMap.get(key) || 0) + 1);
+      if (!dailyMap.has(key)) {
+        dailyMap.set(key, { count: 0, riskScore: 0, danger: 0, safe: 0 });
+      }
+      const entry = dailyMap.get(key)!;
+      entry.count += 1;
+      entry.riskScore += r.risk_score;
+      if (r.risk_level === "danger") entry.danger += 1;
+      if (r.risk_level === "safe") entry.safe += 1;
     });
 
-    return Array.from(dailyMap.entries()).map(([label, count]) => ({ label, count }));
+    return Array.from(dailyMap.entries())
+      .map(([label, data]) => ({
+        label,
+        count: data.count,
+        riskScore: Math.round((data.riskScore / data.count) * 10) / 10,
+        dangerCount: data.danger,
+        safeCount: data.safe,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  })();
+
+  // Prepare data for trend comparison (by week)
+  const trendComparisonData = (() => {
+    if (history.length < 2) return [];
+    const filtered = selectedPeriod === "7d"
+      ? history.filter((r) => {
+          const date = new Date(r.created_at);
+          const now = new Date();
+          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          return date > weekAgo;
+        })
+      : selectedPeriod === "30d"
+        ? history.filter((r) => {
+            const date = new Date(r.created_at);
+            const now = new Date();
+            const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            return date > monthAgo;
+          })
+        : history;
+
+    // Group by week
+    const weekMap = new Map<string, { danger: number; caution: number; safe: number }>();
+    filtered.forEach((r) => {
+      const date = new Date(r.created_at);
+      const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      const weekStart = new Date(Date.UTC(utcDate.getFullYear(), utcDate.getMonth(), utcDate.getDate() - utcDate.getDay()));
+      const label = `Week of ${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+      if (!weekMap.has(label)) {
+        weekMap.set(label, { danger: 0, caution: 0, safe: 0 });
+      }
+      const entry = weekMap.get(label)!;
+      if (r.risk_level === "danger") entry.danger += 1;
+      if (r.risk_level === "caution") entry.caution += 1;
+      if (r.risk_level === "safe") entry.safe += 1;
+    });
+
+    return Array.from(weekMap.entries())
+      .map(([label, value]) => ({ label, ...value }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   })();
 
   // Prepare data for doughnut chart (risk level breakdown)
@@ -263,6 +318,106 @@ export default function AnalyticsDashboard({ history }: AnalyticsDashboardProps)
             </ResponsiveContainer>
           ) : (
             <p className="text-sm text-slate-500">No category data.</p>
+          )}
+        </div>
+
+        {/* Trend Analysis - Risk Score Over Time */}
+        <div className="rounded-xl bg-slate-900/40 p-4 lg:col-span-2">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-sm font-semibold text-white">Risk Score Trend</h4>
+            {selectedPeriod !== "all" && (
+              <span className="text-xs text-slate-500">
+                Showing {selectedPeriod === "7d" ? "last 7 days" : "last 30 days"}
+              </span>
+            )}
+          </div>
+          {history.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={lineChartData}>
+                <Line
+                  type="monotone"
+                  dataKey="riskScore"
+                  stroke="#EF4444"
+                  strokeWidth={2}
+                  dot={{
+                    fill: "#EF4444",
+                    strokeWidth: 2,
+                    r: 4,
+                  }}
+                  name="Average Risk Score"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="dangerCount"
+                  stroke="#DC2626"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 2"
+                  dot={{
+                    fill: "#DC2626",
+                    strokeWidth: 2,
+                    r: 3,
+                  }}
+                  name="Danger Scans"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="safeCount"
+                  stroke="#22C55E"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 2"
+                  dot={{
+                    fill: "#22C55E",
+                    strokeWidth: 2,
+                    r: 3,
+                  }}
+                  name="Safe Scans"
+                />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#6B7280" }} />
+                <YAxis tick={{ fontSize: 10, fill: "#6B7280" }} />
+                <Tooltip content={({ active, payload }) =>
+                  active && payload && (
+                    <div className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200">
+                      {payload.map((p: { name?: string | number | undefined; value?: React.ReactNode }) => (
+                        <p key={p.name}>
+                          <span className="font-semibold">{p.name}:</span> {p.value}
+                        </p>
+                      ))}
+                    </div>
+                  )} />
+                <Legend wrapperStyle={{ fontSize: 10, fill: "#6B7280" }} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-sm text-slate-500">No scan history to display trends.</p>
+          )}
+        </div>
+
+        {/* Comparison Gauge */}
+        <div className="rounded-xl bg-slate-900/40 p-4 lg:col-span-2">
+          <h4 className="mb-3 text-sm font-semibold text-white">Trend Comparison</h4>
+          {history.length >= 2 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={trendComparisonData}>
+                <Bar dataKey="danger" fill="#EF4444" name="Danger" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                <Bar dataKey="caution" fill="#F59E0B" name="Caution" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                <Bar dataKey="safe" fill="#22C55E" name="Safe" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#6B7280" }} />
+                <YAxis tick={{ fontSize: 10, fill: "#6B7280" }} />
+                <Tooltip content={({ active, payload }) =>
+                  active && payload && (
+                    <div className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200">
+                      {payload.map((p: { name?: string | number | undefined; value?: React.ReactNode }) => (
+                        <p key={p.name}>
+                          <span className="font-semibold">{p.name}:</span> {p.value}
+                        </p>
+                      ))}
+                    </div>
+                  )} />
+                <Legend wrapperStyle={{ fontSize: 10, fill: "#6B7280" }} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-sm text-slate-500">Not enough data for comparison. Scan at least 2 messages.</p>
           )}
         </div>
       </div>
