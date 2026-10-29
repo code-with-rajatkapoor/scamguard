@@ -1,4 +1,5 @@
-import { AlertTriangle, ShieldAlert, Info, ShieldCheck, Zap, XCircle, Gift, Lock, User, Award, Mail, SpellCheck, Phone, ShoppingCart, TrendingUp, Briefcase, ExternalLink, IdCard, DollarSign } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, ShieldAlert, Info, ShieldCheck, Zap, XCircle, Gift, Lock, User, Award, Mail, SpellCheck, Phone, ShoppingCart, TrendingUp, Briefcase, ExternalLink, IdCard, DollarSign, Copy, Check } from 'lucide-react';
 import type { DetectedIndicator } from '@/types';
 import type { LucideIcon } from 'lucide-react';
 
@@ -57,6 +58,14 @@ function getIcon(type: string): LucideIcon {
 }
 
 export default function IndicatorList({ indicators }: IndicatorListProps) {
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  const handleCopy = (description: string, index: number) => {
+    navigator.clipboard.writeText(description);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
   if (indicators.length === 0) {
     return (
       <div className="flex items-center gap-3 p-5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 card-hover">
@@ -107,6 +116,23 @@ export default function IndicatorList({ indicators }: IndicatorListProps) {
                 </div>
               )}
             </div>
+            <button
+              onClick={() => handleCopy(indicator.description, index)}
+              className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-700/30 hover:bg-slate-700/50 text-slate-400 hover:text-white transition-colors"
+              title="Click to copy"
+            >
+              {copiedIndex === index ? (
+                <>
+                  <Check className="w-3 h-3" />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3 h-3" />
+                  Copy
+                </>
+              )}
+            </button>
           </div>
         );
       })}
